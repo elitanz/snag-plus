@@ -5,6 +5,12 @@
 An upgraded Snag, the thrift-flip checker. Snap a find, and it tells you what the item sells for, what you'd make after fees, shipping and tax, and whether to buy it (BUY / MAYBE / SKIP). It also writes a ready-to-post listing.
 
 ## What's new compared to the original Snag
+- **A new look built from real thrift-store objects:** newsprint paper, a fluorescent yard-sale sticker, the result as a manila hang tag, the verdict slammed down as a rubber stamp, and a register receipt.
+- **Price-tag ruler.** One bar shows the buy zone, the thin-margin zone and the losing zone, with a pin at the price on the tag, so you get the answer at a glance in the aisle.
+- **Today's haul.** Add finds to a cart while you shop. It shows what you'll spend against a trip budget plus the expected profit, and "I bought these" moves them all to Bought.
+- **Color-tag sales.** Set this week's sale color (say, blue tags 50% off), tap the tag color when you scan, and the discount comes off automatically.
+- **Profit by week** for the last 8 weeks, plus a monthly profit goal.
+- **Reads barcodes, UPCs and ISBNs** in your photos to pin down the exact product.
 - **Reads the price sticker.** Leave the price blank and Snag reads it from your photo.
 - **"Not right? Correct it."** Tell Snag what the item really is and it re-prices it using the same photos.
 - **Fees checked against each platform (November 2026):** eBay 13.6% + $0.40 ($0.30 on orders of $10 or less), Poshmark 20% or $2.95 under $15, Mercari 10%, Depop 3.3% + $0.45, Etsy 6.5% + 3% + $0.25 + $0.20 listing, Grailed 6% under $120 / 9% from $120 + 3.49% + $0.49, Discogs 9% + PayPal processing.
