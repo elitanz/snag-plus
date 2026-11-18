@@ -705,40 +705,90 @@ function platformRows(est, paid, prefs) {
 /* ======================================================================
    Storage: your account (db) when available, this browser otherwise
    ====================================================================== */
+/* Finds live in the browser's IndexedDB (room for hundreds of sharp photos); preferences stay in
+   localStorage. If IndexedDB isn't available (some private windows), finds fall back to localStorage. */
+const idb = {
+  _db: null,
+  open() {
+    if (!this._db) this._db = new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error("IndexedDB unavailable"));
+      const req = indexedDB.open("snag", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("items", { keyPath: "id" });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return this._db;
+  },
+  async run(mode, fn) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const t = db.transaction("items", mode), req = fn(t.objectStore("items"));
+      t.oncomplete = () => resolve(req ? req.result : undefined);
+      t.onerror = () => reject(t.error); t.onabort = () => reject(t.error);
+    });
+  },
+  all() { return this.run("readonly", st => st.getAll()); },
+  put(item) { return this.run("readwrite", st => st.put(item)); },
+  del(id) { return this.run("readwrite", st => st.delete(id)); },
+  clear() { return this.run("readwrite", st => st.clear()); }
+};
+const isQuotaError = e => !!e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
+const STORAGE_FULL = "This browser's storage is full, so new finds aren't being saved. Delete some old finds to make room.";
+
 const store = {
-  mode: "local", items: new Map(), prefs: { ...DEFAULT_PREFS }, db: null, uid: null, col: null, prefDoc: null,
+  mode: "local", items: new Map(), prefs: { ...DEFAULT_PREFS }, db: null, uid: null, col: null, prefDoc: null, useIdb: false,
   loadLocal() {
-    try { const a = JSON.parse(localStorage.getItem("snag-items") || "[]"); a.forEach(i => this.items.set(i.id, i)); } catch (e) {}
     try { Object.assign(this.prefs, JSON.parse(localStorage.getItem("snag-prefs") || "{}")); } catch (e) {}
   },
-  saveLocal() {
-    if (this.mode !== "local") return;
-    try { localStorage.setItem("snag-items", JSON.stringify([...this.items.values()])); localStorage.setItem("snag-prefs", JSON.stringify(this.prefs)); }
-    catch (e) {
-      const full = e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
-      if (full) toast("This browser's storage is full, so new finds aren't being saved. Delete some old finds to make room.");
+  async loadItems() {
+    let legacy = [];
+    try { legacy = JSON.parse(localStorage.getItem("snag-items") || "[]"); } catch (e) {}
+    try {
+      for (const it of legacy) await idb.put(it);      // one-time move from older versions of Snag
+      if (legacy.length) { try { localStorage.removeItem("snag-items"); } catch (e) {} }
+      (await idb.all()).forEach(i => this.items.set(i.id, i));
+      this.useIdb = true;
+    } catch (e) {
+      legacy.forEach(i => this.items.set(i.id, i));
+      this.useIdb = false;
     }
+  },
+  savePrefsLocal() { try { localStorage.setItem("snag-prefs", JSON.stringify(this.prefs)); } catch (e) {} },
+  async saveItemLocal(item) {
+    if (this.useIdb) {
+      try { await idb.put(JSON.parse(JSON.stringify(item))); } catch (e) { toast(isQuotaError(e) ? STORAGE_FULL : "Couldn't save that find. Try again."); }
+      return;
+    }
+    try { localStorage.setItem("snag-items", JSON.stringify([...this.items.values()])); } catch (e) { if (isQuotaError(e)) toast(STORAGE_FULL); }
+  },
+  async removeItemLocal(id) {
+    if (this.useIdb) { try { await idb.del(id); } catch (e) {} return; }
+    try { localStorage.setItem("snag-items", JSON.stringify([...this.items.values()])); } catch (e) {}
+  },
+  async saveAllLocal() {
+    this.savePrefsLocal();
+    for (const it of this.items.values()) await this.saveItemLocal(it);
   },
   list() { return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt); },
   async put(item) {
     item.updatedAt = Date.now(); this.items.set(item.id, item); renderAll();
     if (this.mode === "db") { try { await this.col.doc(item.id).set(JSON.parse(JSON.stringify(item))); } catch (e) { handleDbError(e); } }
-    else this.saveLocal();
+    else await this.saveItemLocal(item);
   },
   async remove(id) {
     this.items.delete(id); renderAll();
     if (this.mode === "db") { try { await this.col.doc(id).delete(); } catch (e) { handleDbError(e); } }
-    else this.saveLocal();
+    else await this.removeItemLocal(id);
   },
   async savePrefs() {
     renderAll(); refreshResult();
     if (this.mode === "db") { try { await this.prefDoc.set({ ...this.prefs }); } catch (e) { handleDbError(e); } }
-    else this.saveLocal();
+    else this.savePrefsLocal();
   }
 };
 function handleDbError(e) {
   if (e && (e.code === "quota_exceeded")) toast("Storage is full. Delete some old finds.");
-  else if (e && e.code === "invalid_argument") { toast("Couldn't save to your account. Saving in this browser instead."); store.mode = "local"; store.saveLocal(); setSync(); }
+  else if (e && e.code === "invalid_argument") { toast("Couldn't save to your account. Saving in this browser instead."); store.mode = "local"; store.saveAllLocal(); setSync(); }
   else toast("Couldn't save just now. Try again.");
 }
 function setSync() {
@@ -820,8 +870,9 @@ function renderTagDots() {
 // loaded only when one actually shows up.
 const HEIC_LIB = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
 const MAX_PHOTO_SIDE = 1600;
-const THUMB_SIDE = 560;
-const THUMB_QUALITY = 0.74;
+const THUMB_SIDE = 1000;          // sharp on a full-width phone card (~430pt wide at 2-3x)
+const THUMB_SIDE_ACCOUNT = 640;   // smaller when finds sync to a claude.ai account
+const THUMB_QUALITY = 0.8;
 let heicLoading = null;
 const isHeic = f => /image\/hei[cf]/i.test(f.type || "") || /\.hei[cf]$/i.test(f.name || "");
 const isImageFile = f => !!f && ((f.type || "").startsWith("image/") || isHeic(f));
@@ -960,8 +1011,7 @@ $("go").addEventListener("click", async () => {
     const canvases = await Promise.all(files.map(f => shrink(f, 1024)));
     const blobs = await Promise.all(canvases.map(toBlob));
     let thumb = "";
-    // 560px keeps the My finds card sharp on Retina screens (~45 KB each, so ~100 finds fit in browser storage).
-    if (files[0]) { const tc = await shrink(files[0], THUMB_SIDE); thumb = tc.toDataURL("image/jpeg", THUMB_QUALITY); }
+    if (files[0]) { const tc = await shrink(files[0], store.mode === "db" ? THUMB_SIDE_ACCOUNT : THUMB_SIDE); thumb = tc.toDataURL("image/jpeg", THUMB_QUALITY); }
     const opts = { modelTier: "default" };
     if (blobs.length) opts.images = blobs;
     const est = await sample.json(buildPrompt(cond, text, blobs.length), opts);
@@ -1545,6 +1595,7 @@ async function connectLocalAI() {
    Boot
    ====================================================================== */
 store.loadLocal();
+const itemsReady = store.loadItems().then(() => renderAll());
 renderShots();
 showView(location.hash.slice(1) || "scan");
 renderWelcome();
@@ -1581,6 +1632,7 @@ connectLocalAI().then(ok => {
     const base = db.doc("data/users/" + id + "/profile");
     store.col = base.collection("items");
     store.prefDoc = db.doc("data/users/" + id + "/prefs");
+    await itemsReady;
     const localItems = [...store.items.values()];
     const pref = await store.prefDoc.get();
     store.mode = "db";
@@ -1596,10 +1648,14 @@ connectLocalAI().then(ok => {
         first = false;
         // move finds saved in this browser into the account once
         const missing = localItems.filter(i => !store.items.has(i.id));
-        (async () => { for (const it of missing) { try { await store.col.doc(it.id).set(it); } catch (e) { break; } } try { localStorage.removeItem("snag-items"); } catch (e) {} })();
+        (async () => {
+          for (const it of missing) { try { await store.col.doc(it.id).set(it); } catch (e) { return; } }
+          try { localStorage.removeItem("snag-items"); } catch (e) {}
+          try { await idb.clear(); } catch (e) {}
+        })();
       }
       renderAll();
-    }, err => { clearTimeout(timer); store.mode = "local"; store.loadLocal(); setSync(); renderAll(); });
+    }, err => { clearTimeout(timer); store.mode = "local"; store.items.clear(); store.loadLocal(); store.loadItems().then(renderAll); setSync(); renderAll(); });
     setSync(); renderAll();
   } catch (e) {
     store.mode = "local"; setSync();
