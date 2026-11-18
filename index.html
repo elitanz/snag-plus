@@ -713,7 +713,11 @@ const store = {
   },
   saveLocal() {
     if (this.mode !== "local") return;
-    try { localStorage.setItem("snag-items", JSON.stringify([...this.items.values()])); localStorage.setItem("snag-prefs", JSON.stringify(this.prefs)); } catch (e) {}
+    try { localStorage.setItem("snag-items", JSON.stringify([...this.items.values()])); localStorage.setItem("snag-prefs", JSON.stringify(this.prefs)); }
+    catch (e) {
+      const full = e && (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014);
+      if (full) toast("This browser's storage is full, so new finds aren't being saved. Delete some old finds to make room.");
+    }
   },
   list() { return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt); },
   async put(item) {
@@ -816,6 +820,8 @@ function renderTagDots() {
 // loaded only when one actually shows up.
 const HEIC_LIB = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
 const MAX_PHOTO_SIDE = 1600;
+const THUMB_SIDE = 560;
+const THUMB_QUALITY = 0.74;
 let heicLoading = null;
 const isHeic = f => /image\/hei[cf]/i.test(f.type || "") || /\.hei[cf]$/i.test(f.name || "");
 const isImageFile = f => !!f && ((f.type || "").startsWith("image/") || isHeic(f));
@@ -954,7 +960,8 @@ $("go").addEventListener("click", async () => {
     const canvases = await Promise.all(files.map(f => shrink(f, 1024)));
     const blobs = await Promise.all(canvases.map(toBlob));
     let thumb = "";
-    if (files[0]) { const tc = await shrink(files[0], 240); thumb = tc.toDataURL("image/jpeg", 0.7); }
+    // 560px keeps the My finds card sharp on Retina screens (~45 KB each, so ~100 finds fit in browser storage).
+    if (files[0]) { const tc = await shrink(files[0], THUMB_SIDE); thumb = tc.toDataURL("image/jpeg", THUMB_QUALITY); }
     const opts = { modelTier: "default" };
     if (blobs.length) opts.images = blobs;
     const est = await sample.json(buildPrompt(cond, text, blobs.length), opts);
