@@ -94,7 +94,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 32px 24px 64px; }
 .hero p { margin: 0; color: var(--muted); font-size: 17px; max-width: 38ch; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: grid; gap: 16px; box-shadow: var(--shadow); }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.scan-col { display: grid; gap: 18px; position: sticky; top: 84px; }
+.scan-col { display: grid; gap: 18px; position: sticky; top: 76px; max-height: calc(100vh - 92px); max-height: calc(100dvh - 92px); overflow-y: auto; overscroll-behavior: contain; padding: 8px 10px 24px 4px; margin: -8px -10px 0 -4px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 
 .mode { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border-radius: 10px; padding: 4px; gap: 4px; }
 .mode button { border: 0; background: none; padding: 9px; border-radius: 7px; font-weight: 600; font-size: 14px; color: var(--muted); cursor: pointer; }
@@ -219,6 +219,17 @@ textarea { resize: vertical; min-height: 90px; }
 .big-num.hi span { color: var(--accent-ink); opacity: .72; }
 .big-num.neg b { color: var(--bad); }
 .big-num.hi.neg b { color: var(--accent-ink); }
+
+/* Welcome card (shown before the first scan) */
+.welcome-head { grid-template-columns: 1fr auto; }
+.welcome-stamp { color: var(--manila-ink); opacity: .55; }
+.how { list-style: none; margin: 0; padding: 6px 26px 10px; }
+.how li { display: grid; grid-template-columns: 44px 1fr; gap: 16px; padding: 18px 0; border-bottom: 1px dashed var(--line-strong); }
+.how li:last-child { border-bottom: 0; }
+.how li > b { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-family: var(--font-display); font-weight: 900; font-stretch: 80%; font-size: 24px; }
+.how h3 { margin: 4px 0 6px; }
+.how p { margin: 0; color: var(--muted); font-size: 15px; max-width: 52ch; }
+.welcome-note { margin: 0 26px 24px; padding: 12px 14px; border-radius: 10px; background: var(--warn-bg); font-size: 14px; }
 
 /* Price-tag ruler */
 .ruler-wrap { padding: 16px 24px 18px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
@@ -396,7 +407,7 @@ input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--acce
 /* ---------- Responsive ---------- */
 @media (max-width: 1020px) {
   .scan-grid { grid-template-columns: 1fr; }
-  .scan-col { position: static; }
+  .scan-col { position: static; max-height: none; overflow: visible; padding: 0; margin: 0; }
   .kpis { grid-template-columns: 1fr 1fr; }
   .stat-grid { grid-template-columns: 1fr; }
 }
@@ -716,7 +727,7 @@ const store = {
     else this.saveLocal();
   },
   async savePrefs() {
-    renderAll(); if (current && !document.querySelector(".steps")) renderResult(false);
+    renderAll(); refreshResult();
     if (this.mode === "db") { try { await this.prefDoc.set({ ...this.prefs }); } catch (e) { handleDbError(e); } }
     else this.saveLocal();
   }
@@ -731,33 +742,6 @@ function setSync() {
   $("syncDot").classList.toggle("ok", ok);
   $("syncText").textContent = ok ? "Saved to your Claude account. Your finds follow you to any device and only you can see them." : "Saved in this browser only. Open Snag on claude.ai while signed in to save finds to your account.";
 }
-
-/* ======================================================================
-   Example (shown until the first real scan)
-   ====================================================================== */
-const EXAMPLE = {
-  id: "example", example: true, paid: 4.99, cond: "Good, light wear", status: "scanned", createdAt: 0,
-  thumb: "",
-  est: {
-    item_name: "Pyrex Butterprint Mixing Bowl, 2.5 qt", brand: "Pyrex", category: "Vintage kitchenware", era: "1957–1968",
-    confidence: "medium", demand: "high", sell_speed: "1–2 weeks",
-    platforms: [
-      { platform: "eBay", low: 28, high: 45, shipping: 12 },
-      { platform: "Etsy", low: 32, high: 50, shipping: 13 },
-      { platform: "Facebook Marketplace", low: 18, high: 28, shipping: 0 },
-      { platform: "Mercari", low: 24, high: 38, shipping: 12 }
-    ],
-    why: "Butterprint is one of the most collected Pyrex patterns. Bright turquoise print with no dishwasher fading is what buyers pay up for.",
-    value_drivers: ["Unfaded, glossy print", "Model #403 stamped on the bottom", "Complete sets of 401–404 sell at a premium"],
-    red_flags: ["Dishwasher haze or chalky print cuts value roughly in half", "Chips on the rim make it hard to sell"],
-    check: ["Run a finger around the rim for chips", "Hold it to the light to spot faded print", "Look for 403 on the base"],
-    listing_title: "Vintage Pyrex Butterprint 403 Mixing Bowl 2.5 Qt Turquoise Amish Rooster",
-    listing_description: "Vintage Pyrex Butterprint mixing bowl, #403, 2.5 quart. Turquoise print on white with the classic Amish farmer and rooster design. Print is bright with light utensil marks inside. No chips or cracks. Packed carefully with plenty of bubble wrap.",
-    keywords: ["pyrex", "butterprint", "vintage kitchen", "mid century", "turquoise", "amish", "mixing bowl"],
-    item_specifics: { Brand: "Pyrex", Pattern: "Butterprint", Model: "403", Capacity: "2.5 qt", Color: "Turquoise / White", Era: "1950s–60s" },
-    search_query: "Pyrex Butterprint 403 bowl"
-  }
-};
 
 /* ======================================================================
    State
@@ -781,7 +765,7 @@ function showView(v) {
   VIEWS.forEach(n => { $("v-" + n).hidden = n !== v; $("t-" + n).setAttribute("aria-selected", n === v); });
   if (location.hash !== "#" + v) { try { history.replaceState(null, "", "#" + v); } catch (e) { location.hash = v; } }
   window.scrollTo({ top: 0 });
-  if (v === "scan" && current && !document.querySelector(".steps")) renderResult(false);
+  if (v === "scan") refreshResult();
 }
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => showView(t.dataset.view)));
 window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
@@ -846,7 +830,7 @@ $("shots").addEventListener("drop", e => { e.preventDefault(); $("shots").classL
 function updateGo() {
   const has = mode === "photo" ? photos.some(Boolean) : $("desc").value.trim().length > 3;
   $("go").disabled = !has || !sample;
-  if (has && !sample) setStatus("Open Snag on claude.ai to run checks. The example shows what you'll get.");
+  if (has && !sample) setStatus("AI checks aren't connected on this page yet. Run Snag with serve.py on your computer, or open it on claude.ai.");
   else if (has) setStatus("");
 }
 function setStatus(t, err) { $("status").textContent = t; $("status").className = "status" + (err ? " err" : ""); }
@@ -858,7 +842,13 @@ async function shrink(f, max) {
   c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
   return c;
 }
-const toBlob = c => new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
+// toDataURL is synchronous, so it can't stall the way canvas.toBlob can in a background tab.
+const toBlob = c => {
+  const bin = atob(c.toDataURL("image/jpeg", 0.85).split(",")[1]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return Promise.resolve(new Blob([bytes], { type: "image/jpeg" }));
+};
 
 function buildPrompt(cond, text, nPhotos, correction) {
   const allowed = (store.prefs.platforms.length ? store.prefs.platforms : PLATFORMS).join(", ");
@@ -927,9 +917,11 @@ $("go").addEventListener("click", async () => {
     photos = [null, null, null]; renderShots(); $("desc").value = ""; $("price").value = ""; tagColor = ""; renderTagDots(); updateGo();
   } catch (err) {
     stepTimers.forEach(clearTimeout);
-    openItem(current || EXAMPLE, false);
+    if (current) openItem(current, false); else renderWelcome();
     if (err && err.code === "rate_limited") setStatus("Too many checks in a row. Wait a minute, then try again.", true);
     else if (err && err.code === "not_granted") setStatus("Snag needs your OK to use AI. Allow it when asked, then try again.", true);
+    else if (err && err.code === "network") setStatus("Couldn't reach the AI. Check your connection and that serve.py is still running.", true);
+    else if (err && (err.code === "timeout" || err.code === "upstream")) setStatus("The free AI is busy right now. Give it a minute and try again.", true);
     else setStatus(mode === "photo" ? "Couldn't read that. Try a closer, brighter photo with the label in view." : "Couldn't price that. Add the brand, model or size and try again.", true);
     $("go").disabled = false;
   }
@@ -981,6 +973,31 @@ function rulerHTML(item, c) {
       <div class="ruler-scale" aria-hidden="true"><span style="left:0">$0</span>${g > 9 && g < 90 ? `<span style="left:${g}%">${money(good)}</span>` : ""}${e > 9 && e < 92 && e - g > 13 ? `<span style="left:${e}%">${money(even)}</span>` : ""}</div>
       <p class="ruler-say">${esc(say)}</p>
     </div>`;
+}
+
+function renderWelcome() {
+  current = null;
+  $("resultCol").innerHTML = `
+  <article class="tag" aria-label="How Snag works">
+    <span class="tag-hole" aria-hidden="true"></span>
+    <div class="tag-head welcome-head">
+      <div>
+        <p class="meta">How it works</p>
+        <h2 class="item-name">Snap it.<br>Know before you buy.</h2>
+      </div>
+      <div class="sticker welcome-stamp" aria-hidden="true"><div>?<small>scan to find out</small></div></div>
+    </div>
+    <ol class="how">
+      <li><b>1</b><div><h3>Snap the item</h3><p>Shoot the whole thing, plus its tag or label if it has one. Snag reads brands, sizes, barcodes and the store's price sticker.</p></div></li>
+      <li><b>2</b><div><h3>See what it really sells for</h3><p>Price ranges for eBay, Poshmark, Mercari and more, with each platform's fees and shipping already taken out.</p></div></li>
+      <li><b>3</b><div><h3>Get a straight answer</h3><p>BUY, MAYBE or SKIP, the most you should pay, and a listing that's ready to post.</p></div></li>
+    </ol>
+    ${sample ? "" : `<p class="welcome-note">AI checks aren't connected on this page yet. Run Snag with <b>serve.py</b> on your computer, or open it on claude.ai.</p>`}
+  </article>`;
+}
+function refreshResult() {
+  if (document.querySelector(".steps")) return;
+  if (current) renderResult(false); else renderWelcome();
 }
 
 function renderResult(fresh) {
@@ -1085,11 +1102,11 @@ function renderResult(fresh) {
       <h3>Ask about this item</h3>
       <div class="ask-log" id="askLog">${chat.map(m => `<div class="msg ${m.role === "user" ? "me" : "ai"}">${esc(m.content)}</div>`).join("")}</div>
       ${chat.length ? "" : `<div class="suggest">${["How do I tell if it's real?", "How should I photograph it?", "Should I bundle it?", "What's a good opening price?"].map(s => `<button type="button" data-q="${esc(s)}">${esc(s)}</button>`).join("")}</div>`}
-      <form class="ask-row" id="askForm"><input type="text" id="askIn" placeholder="${sample ? "Ask anything about pricing, selling or spotting fakes" : "Open on claude.ai to ask questions"}" ${sample ? "" : "disabled"} aria-label="Your question"><button class="btn" type="submit" ${sample ? "" : "disabled"} style="padding:11px 18px">Ask</button></form>
+      <form class="ask-row" id="askForm"><input type="text" id="askIn" placeholder="${sample ? "Ask anything about pricing, selling or spotting fakes" : "Connect AI checks to ask questions"}" ${sample ? "" : "disabled"} aria-label="Your question"><button class="btn" type="submit" ${sample ? "" : "disabled"} style="padding:11px 18px">Ask</button></form>
     </div>
 
     <div class="tag-actions">
-      ${item.example ? `<span class="meta">This is an example. Check your own find to save it.</span>`
+      ${item.example ? `<span class="meta">Not saved.</span>`
         : saved ? `${item.status === "scanned" ? `<button class="btn-s ${item.inHaul ? "on" : ""}" type="button" id="haulBtn" aria-pressed="${!!item.inHaul}">${item.inHaul ? "In today's haul ✓" : "+ Add to haul"}</button>` : ""}<button class="btn-s" type="button" id="markBought">${item.status === "scanned" ? "I bought it" : "View in My finds"}</button>` : ""}
       <div class="comps"><span class="lab">Check prices:</span>${COMPS.map(([n, f]) => `<a href="${f(q)}" target="_blank" rel="noopener">${n} ↗</a>`).join("")}</div>
     </div>
@@ -1284,7 +1301,7 @@ function renderFinds() {
     card.querySelector("[data-open]").onclick = () => { openItem(it, false); showView("scan"); };
     card.querySelector("[data-del]").onclick = () => {
       store.remove(it.id);
-      if (current && current.id === it.id) openItem(EXAMPLE, false);
+      if (current && current.id === it.id) renderWelcome();
       toast("Find deleted.", { label: "Undo", fn: () => store.put(it) });
     };
   });
@@ -1411,16 +1428,60 @@ function renderAll() {
 }
 
 /* ======================================================================
+   AI through serve.py (free Gemini; the key stays on the computer running it)
+   ====================================================================== */
+function blobToB64(b) {
+  return new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result).split(",")[1] || ""); fr.onerror = () => reject(fr.error); fr.readAsDataURL(b); });
+}
+async function callLocalAI(body) {
+  let r;
+  try { r = await fetch("api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  catch (e) { throw { code: "network" }; }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) throw { code: d.code || "upstream" };
+  return d;
+}
+// Free models sometimes answer in Markdown even when asked not to; show it as plain text.
+const plainText = t => String(t || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1").replace(/^#{1,6}\s+/gm, "").replace(/^\s*[-*]\s+/gm, "• ").replace(/\u2011/g, "-").trim();
+function makeLocalSample() {
+  const fn = async (msgs, opts = {}) => {
+    const d = await callLocalAI({ kind: "text", messages: msgs.map(m => ({ role: m.role, content: String(m.content) })) });
+    const text = plainText(d.text);
+    if (opts.onText) opts.onText({ text });
+    return { text };
+  };
+  fn.json = async (prompt, opts = {}) => {
+    const images = await Promise.all((opts.images || []).map(blobToB64));
+    return (await callLocalAI({ kind: "json", prompt, images })).json;
+  };
+  fn.limits = async () => ({ images: true });
+  return fn;
+}
+async function connectLocalAI() {
+  try {
+    const r = await fetch("api/ai/status", { cache: "no-store" });
+    if (!r.ok) return false;
+    const d = await r.json();
+    if (!d.ok || sample) return false;
+    sample = makeLocalSample();
+    updateGo();
+    refreshResult();
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ======================================================================
    Boot
    ====================================================================== */
 store.loadLocal();
 renderShots();
 showView(location.hash.slice(1) || "scan");
-openItem(EXAMPLE, false);
+renderWelcome();
 renderAll();
 setSync();
 updateGo();
 
+connectLocalAI();
 (async () => {
   for (let i = 0; i < 50 && !(window.claude && window.claude.use); i++) await new Promise(r => setTimeout(r, 100));
   if (!(window.claude && window.claude.use)) { updateGo(); return; }
@@ -1431,7 +1492,7 @@ updateGo();
     if (s) { const lim = await s.limits(); if (lim && lim.images) sample = s; }
   } catch (e) {}
   updateGo();
-  if (current) renderResult(false);
+  refreshResult();
 
   // Account storage
   try {

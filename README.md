@@ -17,12 +17,24 @@ An upgraded Snag, the thrift-flip checker. Snap a find, and it tells you what th
 - **New logo:** a fishhook that's snagged a price tag.
 - **Sales tax setting.** Profit, ROI and "max to pay" include the tax you pay at the register.
 - **Clear BUY rule.** The receipt shows exactly how much profit a BUY needs.
+- **Homepage explains how it works** instead of showing a made-up example item.
+- **Left column scrolls on its own** on desktop, so the scan form is always reachable.
 - **Five price-check links** instead of one: eBay sold and Poshmark sold (what items actually sold for), plus Mercari, Etsy and Google Shopping (current asking prices).
 - **Shelf-age alerts.** Listed 30+ days suggests a price drop; bought and not listed for a week gets flagged.
 - **My finds tools:** search, sort by profit or age, undo delete, and copy everything to Google Sheets or Excel.
 - **Stats:** average days to sell.
 - Drag-and-drop or paste photos on desktop, pick several photos at once, ⌘/Ctrl+Enter to check, and a buzz on BUY (Android phones; iPhones don't allow it).
 
-Note: the AI checks only run when Snag is opened as an artifact on claude.ai. This GitHub Pages copy shows the interactive example, and finds save in your browser.
+## Run it with live AI checks (free)
+
+```bash
+python3 serve.py
+```
+
+Then open http://localhost:8790. Photo checks use a free Google Gemini key, and the "Ask about this item" questions use a free Groq key (fast, about 1,000 free questions a day). `serve.py` reads both keys from `~/Claude Code/secrets/` on your own computer and adds them on the computer's side, so **no key is ever in this repo or sent to the browser.**
+
+Free-tier notes: Gemini allows roughly 20 checks a day *per model*, and `serve.py` rotates through several models, skipping any that are busy or used up for the day. Answers from the free models are rougher than paid ones, so check the eBay sold link before spending big.
+
+The GitHub Pages copy (no `serve.py` behind it) shows the app but can't run checks. It also runs as an artifact on claude.ai, where Claude does the checks.
 
 Single-file static page (`index.html`), no build step.
