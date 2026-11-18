@@ -791,11 +791,12 @@ function renderShots() {
     <div class="shot ${f ? "filled" : ""}">
       ${f ? `<img alt="Photo ${i + 1}" src="${f._url}"><button class="rm" type="button" data-rm="${i}" aria-label="Remove photo ${i + 1}">×</button>`
           : `<div class="lbl">${i === 0 ? CAM : ""}<b>${SHOT_LABELS[i][0]}</b><span>${SHOT_LABELS[i][1]}</span></div>`}
-      ${f ? "" : `<input type="file" accept="image/*" ${i === 0 ? 'capture="environment"' : ""} multiple data-i="${i}" aria-label="Add ${SHOT_LABELS[i][0]} photo">`}
+      ${f ? "" : `<input type="file" accept="image/*,.heic,.heif" multiple data-i="${i}" aria-label="Add ${SHOT_LABELS[i][0]} photo">`}
     </div>`).join("");
   $("shots").querySelectorAll("input[type=file]").forEach(inp => inp.addEventListener("change", e => {
-    const fs = [...(e.target.files || [])].filter(isImage); if (!fs.length) return;
-    fs[0]._url = URL.createObjectURL(fs[0]); photos[+inp.dataset.i] = fs[0]; fs.slice(1).forEach(addPhoto); renderShots(); updateGo();
+    const files = [...(e.target.files || [])];
+    e.target.value = "";
+    addFiles(files, +inp.dataset.i);
   }));
   $("shots").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { photos[+b.dataset.rm] = null; renderShots(); updateGo(); });
 }
@@ -810,22 +811,77 @@ function renderTagDots() {
   else hint = `This week: ${colorName(s.saleColor).toLowerCase()} tags are ${+s.salePct}% off.`;
   $("saleHint").textContent = hint;
 }
-const isImage = f => !f.type || f.type.startsWith("image/");
-function addPhoto(f) {
-  if (!f || !isImage(f)) return false;
-  const i = photos.findIndex(p => !p);
-  if (i < 0) { toast("All 3 photo spots are full. Remove one first."); return false; }
-  f._url = URL.createObjectURL(f); photos[i] = f; return true;
+// Every photo is turned into a normal JPG as it comes in, so it previews and uploads the
+// same everywhere. iPhone/Mac HEIC photos (which Chrome can't open) go through heic2any,
+// loaded only when one actually shows up.
+const HEIC_LIB = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
+const MAX_PHOTO_SIDE = 1600;
+let heicLoading = null;
+const isHeic = f => /image\/hei[cf]/i.test(f.type || "") || /\.hei[cf]$/i.test(f.name || "");
+const isImageFile = f => !!f && ((f.type || "").startsWith("image/") || isHeic(f));
+function loadHeicLib() {
+  if (window.heic2any) return Promise.resolve();
+  if (!heicLoading) heicLoading = new Promise((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = HEIC_LIB; sc.onload = () => resolve();
+    sc.onerror = () => { heicLoading = null; reject(new Error("heic2any failed to load")); };
+    document.head.append(sc);
+  });
+  return heicLoading;
+}
+async function toJpegFile(f) {
+  let bmp;
+  try { bmp = await createImageBitmap(f); }
+  catch (e) {
+    if (!isHeic(f)) throw e;
+    setStatus("Converting iPhone photo…");
+    await loadHeicLib();
+    const out = await window.heic2any({ blob: f, toType: "image/jpeg", quality: 0.9 });
+    bmp = await createImageBitmap(Array.isArray(out) ? out[0] : out);
+  }
+  const k = Math.min(1, MAX_PHOTO_SIDE / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(bmp.width * k)); c.height = Math.max(1, Math.round(bmp.height * k));
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  if (bmp.close) bmp.close();
+  const jpg = new File([await toBlob(c)], (f.name || "photo").replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  jpg._url = URL.createObjectURL(jpg);
+  return jpg;
+}
+async function addFiles(list, preferIndex) {
+  const fs = [...(list || [])].filter(f => isImageFile(f) || (f && !f.type));
+  if (!fs.length) return false;
+  setMode("photo");
+  let failed = 0;
+  for (const f of fs) {
+    let jpg;
+    try { jpg = await toJpegFile(f); } catch (e) { failed++; continue; }
+    const i = preferIndex != null && !photos[preferIndex] ? preferIndex : photos.findIndex(p => !p);
+    preferIndex = null;
+    if (i < 0) { toast("All 3 photo spots are full. Remove one first."); break; }
+    photos[i] = jpg;
+  }
+  renderShots(); updateGo();
+  if (/Converting/.test($("status").textContent)) setStatus("");
+  if (failed) toast(failed === fs.length ? "Couldn't open that photo. Try a JPG or PNG." : "One photo couldn't be opened. Try a JPG or PNG.");
+  return true;
 }
 function addPhotos(list) {
-  const fs = [...(list || [])].filter(f => f.type && f.type.startsWith("image/"));
+  const fs = [...(list || [])].filter(isImageFile);
   if (!fs.length) return false;
-  setMode("photo"); fs.forEach(addPhoto); renderShots(); updateGo(); return true;
+  addFiles(fs);
+  return true;
 }
 document.addEventListener("paste", e => { if (!$("v-scan").hidden && addPhotos(e.clipboardData && e.clipboardData.files)) e.preventDefault(); });
 $("shots").addEventListener("dragover", e => { e.preventDefault(); $("shots").classList.add("drag"); });
 $("shots").addEventListener("dragleave", e => { if (!$("shots").contains(e.relatedTarget)) $("shots").classList.remove("drag"); });
-$("shots").addEventListener("drop", e => { e.preventDefault(); $("shots").classList.remove("drag"); addPhotos(e.dataTransfer && e.dataTransfer.files); });
+$("shots").addEventListener("drop", e => {
+  e.preventDefault(); $("shots").classList.remove("drag");
+  const dt = e.dataTransfer;
+  if (addPhotos(dt && dt.files)) return;
+  if (dt && (dt.types || []).includes("text/uri-list")) toast("Save that picture to your computer first, then drag the file in.");
+  else toast("That isn't a photo Snag can open. Try a JPG, PNG or HEIC.");
+});
 
 function updateGo() {
   const has = mode === "photo" ? photos.some(Boolean) : $("desc").value.trim().length > 3;
