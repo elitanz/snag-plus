@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snag</title>
+<meta name="description" content="Snap a thrift find and know what it sells for, what you'd make after fees, and whether to buy it.">
+<meta property="og:title" content="Snag — is it a steal?">
+<meta property="og:description" content="Know what a thrift find sells for, what you'd make, and whether to buy it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: a reseller's workbench. Left: the scanner. Right: the result as a hanging price tag with a slapped-on sticker verdict and a receipt-paper profit breakdown. Tabs for finds, stats and preferences. */
+:root {
+  --bg: #eceef1;
+  --surface: #ffffff;
+  --ink: #111418;
+  --muted: #59626d;
+  --line: #d6dbe1;
+  --accent: #ffd60a;          /* price-sticker yellow, the one bold note */
+  --accent-ink: #111418;
+  --receipt: #fbfbf8;
+  --good: #0c8346; --good-bg: #dff3e8;
+  --warn: #a96300; --warn-bg: #fcefd9;
+  --bad: #c4302b;  --bad-bg: #fbe4e3;
+  --shadow: 0 1px 0 rgba(17,20,24,.04), 0 10px 30px -12px rgba(17,20,24,.18);
+  --font-display: "Bricolage Grotesque", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1114; --surface: #181b20; --ink: #eef1f4; --muted: #9aa4af; --line: #2c323b;
+    --receipt: #1f2329;
+    --good: #4cd38c; --good-bg: #13301f; --warn: #f3ab3c; --warn-bg: #36280f; --bad: #ff7b74; --bad-bg: #3a1b1a;
+    --shadow: 0 1px 0 rgba(0,0,0,.3), 0 12px 30px -12px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1114; --surface: #181b20; --ink: #eef1f4; --muted: #9aa4af; --line: #2c323b;
+  --receipt: #1f2329;
+  --good: #4cd38c; --good-bg: #13301f; --warn: #f3ab3c; --warn-bg: #36280f; --bad: #ff7b74; --bad-bg: #3a1b1a;
+  --shadow: 0 1px 0 rgba(0,0,0,.3), 0 12px 30px -12px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Top bar ---------- */
+.topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.topbar-in { max-width: 1240px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 24px; }
+.logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+.logo-mark { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-family: var(--font-display); font-weight: 800; font-size: 22px; transform: rotate(-10deg); box-shadow: inset 0 0 0 2px rgba(17,20,24,.12); }
+.logo-word { font-family: var(--font-display); font-weight: 800; font-size: 28px; letter-spacing: -1px; line-height: 1; }
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab { border: 0; background: none; padding: 9px 14px; border-radius: 999px; font-weight: 600; font-size: 15px; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.tab:hover { color: var(--ink); background: var(--surface); }
+.tab[aria-selected="true"] { color: var(--accent-ink); background: var(--accent); }
+.tab svg { width: 18px; height: 18px; }
+.tab .count { font-family: var(--font-mono); font-size: 12px; background: var(--ink); color: var(--bg); border-radius: 999px; padding: 0 7px; }
+.tab[aria-selected="true"] .count { background: var(--accent-ink); color: var(--accent); }
+
+main { max-width: 1240px; margin: 0 auto; padding: 28px 24px 64px; }
+.view { display: grid; gap: 24px; }
+
+/* ---------- Scan view ---------- */
+.scan-grid { display: grid; grid-template-columns: minmax(340px, 440px) 1fr; gap: 28px; align-items: start; }
+.hero h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(40px, 5vw, 64px); line-height: .95; letter-spacing: -2px; margin: 0 0 10px; text-wrap: balance; }
+.hero h1 mark { background: var(--accent); color: var(--accent-ink); padding: 0 .12em; border-radius: 6px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.hero p { margin: 0; color: var(--muted); font-size: 17px; max-width: 38ch; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: grid; gap: 16px; box-shadow: var(--shadow); }
+.scan-col { display: grid; gap: 20px; position: sticky; top: 92px; }
+
+.mode { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border-radius: 12px; padding: 4px; gap: 4px; }
+.mode button { border: 0; background: none; padding: 9px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--muted); cursor: pointer; }
+.mode button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+.shots { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; gap: 10px; height: 250px; }
+.shot { position: relative; border: 2px dashed var(--line); border-radius: 14px; background: var(--bg); display: grid; place-items: center; text-align: center; overflow: hidden; cursor: pointer; padding: 8px; transition: border-color .15s; }
+.shot:first-child { grid-row: span 2; }
+.shot:hover, .shot:focus-within { border-color: var(--ink); }
+.shot input { position: absolute; inset: 0; opacity: 0; cursor: pointer; z-index: 2; }
+.shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.shot.filled { border-style: solid; border-color: var(--ink); }
+.shot .lbl { display: grid; gap: 4px; justify-items: center; font-size: 13px; color: var(--muted); }
+.shot .lbl b { color: var(--ink); font-size: 15px; }
+.shot:first-child .lbl b { font-size: 18px; }
+.shot svg { width: 28px; height: 28px; color: var(--muted); }
+.shot .rm { position: absolute; top: 6px; right: 6px; z-index: 3; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(17,20,24,.75); color: #fff; cursor: pointer; font-size: 16px; line-height: 1; }
+
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field { display: grid; gap: 6px; }
+.field.full { grid-column: 1 / -1; }
+label, .lab { font-size: 13px; font-weight: 600; color: var(--muted); }
+input[type="number"], input[type="text"], input[type="search"], select, textarea {
+  font: inherit; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); width: 100%;
+}
+input[type="number"] { font-family: var(--font-mono); }
+textarea { resize: vertical; min-height: 90px; }
+.money-in { position: relative; }
+.money-in span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-family: var(--font-mono); color: var(--muted); }
+.money-in input { padding-left: 26px; }
+
+.btn { border: 0; border-radius: 14px; padding: 15px 20px; font-weight: 700; font-size: 17px; cursor: pointer; background: var(--ink); color: var(--bg); display: inline-flex; justify-content: center; align-items: center; gap: 10px; transition: transform .1s; }
+.btn:active { transform: scale(.98); }
+.btn.big { width: 100%; font-size: 18px; padding: 17px; }
+.btn.yellow { background: var(--accent); color: var(--accent-ink); }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.btn-s { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 12px; font-weight: 600; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.btn-s:hover { border-color: var(--ink); }
+.btn-s.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.status { font-size: 14px; color: var(--muted); margin: 0; min-height: 1.4em; }
+.status.err { color: var(--bad); font-weight: 600; }
+
+/* Loading steps */
+.steps { display: grid; gap: 10px; padding: 18px; background: var(--surface); border-radius: 20px; border: 1px solid var(--line); }
+.step { display: flex; align-items: center; gap: 12px; color: var(--muted); font-weight: 500; }
+.step i { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); flex: none; display: grid; place-items: center; font-style: normal; font-size: 12px; }
+.step.on { color: var(--ink); }
+.step.on i { border-color: var(--ink); border-top-color: transparent; animation: spin .8s linear infinite; }
+.step.done { color: var(--ink); }
+.step.done i { background: var(--good); border-color: var(--good); color: #fff; animation: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Result: the price tag ---------- */
+.tag { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); overflow: hidden; }
+.tag-hole { position: absolute; top: 22px; left: 22px; width: 14px; height: 14px; border-radius: 50%; background: var(--bg); box-shadow: inset 0 1px 2px rgba(0,0,0,.25); }
+.tag-head { display: grid; grid-template-columns: 120px 1fr auto; gap: 20px; padding: 28px 28px 22px 52px; align-items: center; }
+.tag-thumb { width: 120px; height: 120px; border-radius: 16px; background: var(--bg) center/cover no-repeat; border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); font-size: 40px; }
+.example-flag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; background: var(--ink); color: var(--bg); padding: 3px 8px; border-radius: 6px; margin-bottom: 8px; }
+.meta { color: var(--muted); font-size: 14px; margin: 0; }
+.item-name { font-family: var(--font-display); font-weight: 800; font-size: clamp(26px, 3vw, 36px); line-height: 1.02; letter-spacing: -1px; margin: 4px 0 8px; text-wrap: balance; }
+.conf { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.conf-bar { display: inline-flex; gap: 3px; }
+.conf-bar span { width: 14px; height: 6px; border-radius: 3px; background: var(--line); }
+.conf-bar span.f { background: var(--ink); }
+
+.sticker { width: 132px; height: 132px; border-radius: 50%; display: grid; place-items: center; text-align: center; font-family: var(--font-display); font-weight: 800; font-size: 34px; letter-spacing: -1px; line-height: .9; transform: rotate(9deg); border: 4px solid currentColor; box-shadow: 0 6px 16px -6px rgba(0,0,0,.35); }
+.sticker small { display: block; font-family: var(--font-body); font-size: 12px; font-weight: 700; letter-spacing: 0; margin-top: 6px; text-transform: uppercase; }
+.v-buy { color: var(--good); background: var(--good-bg); }
+.v-maybe { color: var(--warn); background: var(--warn-bg); }
+.v-skip { color: var(--bad); background: var(--bad-bg); }
+@media (prefers-reduced-motion: no-preference) {
+  .sticker.slap { animation: slap .5s cubic-bezier(.2,1.6,.4,1) both; }
+  @keyframes slap { 0% { transform: scale(2.2) rotate(-20deg); opacity: 0; } 60% { opacity: 1; } 100% { transform: scale(1) rotate(9deg); } }
+}
+
+.big-nums { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.big-num { padding: 18px 24px; display: grid; gap: 2px; }
+.big-num + .big-num { border-left: 1px solid var(--line); }
+.big-num b { font-family: var(--font-mono); font-weight: 700; font-size: clamp(22px, 2.6vw, 32px); letter-spacing: -1px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.big-num span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.big-num.hi { background: var(--accent); color: var(--accent-ink); }
+.big-num.hi span { color: var(--accent-ink); opacity: .7; }
+.big-num.neg b { color: var(--bad); }
+.big-num.hi.neg b { color: var(--accent-ink); }
+
+.tag-body { display: grid; grid-template-columns: 1.1fr 1fr; gap: 0; }
+.tag-body > section { padding: 22px 24px; display: grid; gap: 14px; align-content: start; }
+.tag-body > section + section { border-left: 1px solid var(--line); }
+.tag-full { padding: 22px 24px; border-top: 1px solid var(--line); display: grid; gap: 14px; }
+h3 { font-family: var(--font-display); font-weight: 700; font-size: 20px; letter-spacing: -.4px; margin: 0; }
+h3 small { font-family: var(--font-body); font-weight: 500; font-size: 13px; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+
+/* Platform table */
+.plat { width: 100%; border-collapse: collapse; font-size: 14px; }
+.plat th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 8px 6px; }
+.plat th.r, .plat td.r { text-align: right; }
+.plat td { padding: 10px 8px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.plat td.r { font-family: var(--font-mono); }
+.plat tr.row { cursor: pointer; }
+.plat tr.row:hover td { background: var(--bg); }
+.plat tr.sel td { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.plat tr.sel td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.best { font-size: 11px; font-weight: 700; background: var(--ink); color: var(--bg); padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: 1px; }
+
+/* Receipt */
+.receipt { background: var(--receipt); border: 1px solid var(--line); border-radius: 4px; padding: 16px 16px 20px; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; position: relative;
+  -webkit-mask: radial-gradient(circle 6px at 50% 100%, transparent 98%, #000) bottom/14px 100% repeat-x;
+          mask: radial-gradient(circle 6px at 50% 100%, transparent 98%, #000) bottom/14px 100% repeat-x; }
+.receipt .rt { text-align: center; font-weight: 700; letter-spacing: .2em; margin-bottom: 10px; font-size: 12px; }
+.receipt .ln { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.receipt .tot { border-top: 1.5px dashed var(--muted); margin-top: 8px; padding-top: 8px; font-weight: 700; font-size: 16px; }
+.receipt .roi { color: var(--muted); font-size: 12px; text-align: right; }
+
+.tune { display: grid; gap: 12px; }
+.tune-row { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; }
+.tune-row output { font-family: var(--font-mono); font-weight: 700; }
+input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--ink); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 13px; padding: 5px 11px; border-radius: 999px; background: var(--bg); }
+.chip b { font-weight: 700; }
+.why { margin: 0; font-size: 15.5px; max-width: 62ch; }
+.bul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14.5px; }
+.bul li { display: grid; grid-template-columns: 20px 1fr; gap: 8px; }
+.bul li::before { content: "✓"; font-weight: 700; color: var(--good); }
+.bul.flags li::before { content: "!"; color: var(--bad); text-align: center; }
+.bul.drivers li::before { content: "↑"; color: var(--ink); }
+
+/* Listing */
+.ptabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.listing { background: var(--bg); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
+.lfield { display: grid; gap: 6px; }
+.lfield-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lfield .txt { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 14.5px; white-space: pre-wrap; }
+.lfield .txt.title { font-weight: 600; }
+.charcount { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.specs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.spec { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.spec span { display: block; color: var(--muted); font-size: 11.5px; font-weight: 600; }
+
+/* Ask */
+.ask-log { display: grid; gap: 10px; max-height: 340px; overflow-y: auto; }
+.msg { padding: 10px 14px; border-radius: 14px; font-size: 14.5px; max-width: 85%; white-space: pre-wrap; }
+.msg.me { background: var(--ink); color: var(--bg); justify-self: end; border-bottom-right-radius: 4px; }
+.msg.ai { background: var(--bg); border-bottom-left-radius: 4px; }
+.ask-row { display: flex; gap: 8px; }
+.ask-row input { flex: 1; }
+.suggest { display: flex; gap: 6px; flex-wrap: wrap; }
+.suggest button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.suggest button:hover { border-color: var(--ink); }
+
+.tag-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 18px 24px; border-top: 1px solid var(--line); background: var(--bg); }
+.tag-actions .comps { margin-left: auto; }
+
+/* ---------- Finds ---------- */
+.view-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; }
+.view-head h2 { font-family: var(--font-display); font-weight: 800; font-size: clamp(32px, 4vw, 48px); letter-spacing: -1.5px; line-height: 1; margin: 0; }
+.view-head p { margin: 6px 0 0; color: var(--muted); }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.finds { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.find { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; box-shadow: var(--shadow); }
+.find-img { height: 150px; background: var(--bg) center/cover no-repeat; position: relative; display: grid; place-items: center; font-size: 40px; color: var(--muted); }
+.find-img .mini { position: absolute; top: 10px; right: 10px; width: 54px; height: 54px; font-size: 13px; border-width: 2.5px; box-shadow: none; }
+.find-body { padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.find-body h4 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 18px; line-height: 1.15; letter-spacing: -.3px; }
+.find-nums { display: flex; gap: 14px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.find-nums b { color: var(--ink); }
+.pipeline { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); }
+.pipeline button { border: 0; background: none; padding: 10px 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; border-right: 1px solid var(--line); }
+.pipeline button:last-child { border-right: 0; }
+.pipeline button.on { background: var(--ink); color: var(--bg); }
+.find-foot { display: flex; gap: 8px; padding: 10px 16px 14px; flex-wrap: wrap; align-items: center; }
+.find-foot .sold-in { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.find-foot .sold-in input { width: 90px; padding: 6px 8px; font-size: 13px; }
+.linkbtn { border: 0; background: none; font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: underline; padding: 4px 0; }
+.linkbtn.del { color: var(--bad); margin-left: auto; }
+.empty { border: 2px dashed var(--line); border-radius: 20px; padding: 48px 24px; text-align: center; color: var(--muted); display: grid; gap: 12px; justify-items: center; }
+.empty b { color: var(--ink); font-size: 18px; font-family: var(--font-display); }
+
+/* ---------- Stats ---------- */
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; display: grid; gap: 4px; box-shadow: var(--shadow); }
+.kpi span { font-size: 13px; font-weight: 600; color: var(--muted); }
+.kpi b { font-family: var(--font-mono); font-size: clamp(24px, 3vw, 34px); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.kpi small { color: var(--muted); font-size: 13px; }
+.kpi.hi { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.kpi.hi span, .kpi.hi small { color: var(--accent-ink); opacity: .75; }
+.stat-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+.funnel { display: grid; gap: 12px; }
+.fbar { display: grid; grid-template-columns: 80px 1fr 40px; gap: 12px; align-items: center; font-size: 14px; }
+.fbar .track { height: 26px; background: var(--bg); border-radius: 8px; overflow: hidden; }
+.fbar .fill { height: 100%; background: var(--ink); border-radius: 8px; min-width: 2px; }
+.fbar .fill.y { background: var(--accent); }
+.fbar b { font-family: var(--font-mono); text-align: right; }
+.top-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.top-list li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--bg); border-radius: 10px; font-size: 14px; }
+.top-list li b { font-family: var(--font-mono); }
+
+/* ---------- Prefs ---------- */
+.prefs { max-width: 680px; }
+.pref { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid var(--line); }
+.pref:first-of-type { border-top: 0; }
+.pref p { margin: 0; font-size: 14px; color: var(--muted); }
+.pref .plats { display: flex; gap: 8px; flex-wrap: wrap; }
+.sync-note { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.sync-dot.ok { background: var(--good); }
+
+.fine { font-size: 13px; color: var(--muted); margin: 0; max-width: 70ch; }
+.toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-weight: 600; font-size: 14px; z-index: 50; box-shadow: var(--shadow); }
+
+/* ---------- Upgrades ---------- */
+.comps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.comps a { font-size: 13px; font-weight: 600; color: var(--ink); text-decoration: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; }
+.comps a:hover { border-color: var(--ink); }
+.linkish { border: 0; background: none; padding: 0; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.linkish:hover { color: var(--ink); }
+.tag-fix { padding: 0 28px 22px 52px; display: grid; gap: 8px; }
+.fix-row { display: flex; gap: 8px; }
+.fix-row input { flex: 1; min-width: 0; }
+.fixed-note { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+.tip-desk { margin: 8px 0 0; font-size: 13px; }
+@media (pointer: coarse) { .tip-desk { display: none; } }
+.shots.drag .shot { border-color: var(--accent); }
+.find-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.find-tools input[type="search"] { flex: 1; min-width: 200px; }
+.find-tools select { width: auto; }
+.age { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.age.stale { color: var(--warn); }
+.toast button { margin-left: 12px; border: 0; background: none; color: var(--accent); font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1020px) {
+  .scan-grid { grid-template-columns: 1fr; }
+  .scan-col { position: static; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .stat-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .topbar { backdrop-filter: none; background: var(--bg); }
+  .specs { grid-template-columns: 1fr 1fr; }
+  .topbar-in { padding: 10px 16px; }
+  main { padding: 20px 16px 110px; }
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; margin: 0; background: var(--surface); border-top: 1px solid var(--line); padding: 8px 8px 12px; justify-content: space-around; z-index: 30; }
+  .tab { flex-direction: column; gap: 2px; font-size: 11.5px; padding: 6px 10px; border-radius: 12px; }
+  .tab .count { position: absolute; margin: -4px 0 0 22px; font-size: 10px; padding: 0 5px; }
+  .tab { position: relative; }
+  .tag-head { grid-template-columns: 1fr auto; padding: 24px 20px 18px 44px; }
+  .tag-thumb { display: none; }
+  .tag-hole { top: 18px; left: 16px; }
+  .sticker { width: 96px; height: 96px; font-size: 24px; }
+  .sticker small { font-size: 10px; }
+  .big-nums { grid-template-columns: 1fr 1fr; }
+  .big-num.hi { grid-column: 1 / -1; order: -1; }
+  .big-num + .big-num { border-left: 0; }
+  .big-num:nth-child(3) { border-left: 1px solid var(--line); }
+  .big-num { padding: 14px 18px; }
+  .tag-body { grid-template-columns: 1fr; }
+  .tag-body > section + section { border-left: 0; border-top: 1px solid var(--line); }
+  .tag-body > section, .tag-full { padding: 18px; }
+  .tag-actions { padding: 14px 18px; }
+  .tag-actions .comps { margin-left: 0; }
+  .tag-fix { padding: 0 20px 18px; }
+  .toast { bottom: 96px; }
+  .shots { height: 210px; }
+  .kpis { gap: 10px; }
+  .kpi { padding: 14px; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="logo" href="#scan" aria-label="Snag home"><span class="logo-mark" aria-hidden="true">S</span><span class="logo-word">Snag</span></a>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" id="t-scan" data-view="scan" aria-selected="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3.5"/></svg>Scan</button>
+      <button class="tab" role="tab" id="t-finds" data-view="finds" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>My finds <span class="count" id="findCount">0</span></button>
+      <button class="tab" role="tab" id="t-stats" data-view="stats" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Stats</button>
+      <button class="tab" role="tab" id="t-prefs" data-view="prefs" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Preferences</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- ================= SCAN ================= -->
+  <div class="view" id="v-scan" role="tabpanel" aria-labelledby="t-scan">
+    <div class="scan-grid">
+      <div class="scan-col">
+        <div class="hero">
+          <h1>Is it a <mark>steal?</mark></h1>
+          <p>Snap it in the aisle. Know what it sells for, what you'd make, and whether to buy it.</p>
+        </div>
+        <div class="panel">
+          <div class="mode" role="group" aria-label="How to check">
+            <button type="button" id="m-photo" aria-pressed="true">Photo</button>
+            <button type="button" id="m-text" aria-pressed="false">Type it</button>
+          </div>
+
+          <div id="photoMode">
+            <div class="shots" id="shots"></div>
+            <p class="meta tip-desk">Tip: drag photos in or paste them. Snag reads the price sticker if it's in the shot.</p>
+          </div>
+          <div id="textMode" hidden>
+            <div class="field">
+              <label for="desc">Describe the item</label>
+              <textarea id="desc" placeholder="e.g. Levi's 501 jeans, made in USA, red tab, 32x30, faded"></textarea>
+            </div>
+          </div>
+
+          <div class="fields">
+            <div class="field">
+              <label for="price">Price tag</label>
+              <div class="money-in"><span>$</span><input id="price" type="number" inputmode="decimal" min="0" step="0.01" placeholder="4.99"></div>
+            </div>
+            <div class="field">
+              <label for="cond">Condition</label>
+              <select id="cond">
+                <option value="New with tags">New with tags</option>
+                <option value="Excellent, barely used">Excellent</option>
+                <option value="Good, light wear" selected>Good, light wear</option>
+                <option value="Fair, visible flaws">Fair, visible flaws</option>
+                <option value="For parts or repair">For parts / repair</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn big" id="go" type="button" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            Check it
+          </button>
+          <p class="status" id="status" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <div id="resultCol" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- ================= FINDS ================= -->
+  <div class="view" id="v-finds" role="tabpanel" aria-labelledby="t-finds" hidden>
+    <div class="view-head">
+      <div><h2>My finds</h2><p>Every item you check is saved here. Move it along as you buy, list and sell it.</p></div>
+      <div class="filters" id="filters"></div>
+    </div>
+    <div class="find-tools">
+      <input type="search" id="findQ" placeholder="Search your finds" aria-label="Search your finds">
+      <select id="findSort" aria-label="Sort finds">
+        <option value="new">Newest first</option>
+        <option value="profit">Most profit</option>
+        <option value="old">Oldest first</option>
+      </select>
+      <button class="btn-s" type="button" id="copySheet">Copy for spreadsheet</button>
+    </div>
+    <div class="finds" id="findsGrid"></div>
+  </div>
+
+  <!-- ================= STATS ================= -->
+  <div class="view" id="v-stats" role="tabpanel" aria-labelledby="t-stats" hidden>
+    <div class="view-head"><div><h2>Your flipping</h2><p>Money in, money out, and what's still sitting on the shelf.</p></div></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="stat-grid">
+      <div class="panel"><h3>Pipeline</h3><div class="funnel" id="funnel"></div></div>
+      <div class="panel"><h3>Best flips</h3><ul class="top-list" id="topList"></ul></div>
+    </div>
+  </div>
+
+  <!-- ================= PREFS ================= -->
+  <div class="view" id="v-prefs" role="tabpanel" aria-labelledby="t-prefs" hidden>
+    <div class="view-head"><div><h2>Preferences</h2><p>Tune when Snag says BUY, and where you sell.</p></div></div>
+    <div class="panel prefs">
+      <div class="pref">
+        <label for="p-min">Minimum profit for a BUY</label>
+        <p>Items that make less than this are marked MAYBE or SKIP.</p>
+        <div class="money-in" style="max-width:180px"><span>$</span><input id="p-min" type="number" min="0" step="1"></div>
+      </div>
+      <div class="pref">
+        <label for="p-mult">Target return</label>
+        <p>How many times your money you want back after fees and shipping. Also sets "Max to pay".</p>
+        <select id="p-mult" style="max-width:240px">
+          <option value="1.5">1.5× (fast, thin margins)</option>
+          <option value="2">2× (standard)</option>
+          <option value="3">3× (picky)</option>
+          <option value="4">4× (only big wins)</option>
+        </select>
+      </div>
+      <div class="pref">
+        <label for="p-tax">Sales tax at the register</label>
+        <p>Added on top of the price tag so your profit is what you really keep. Leave at 0 if what you buy isn't taxed.</p>
+        <div class="money-in" style="max-width:180px"><input id="p-tax" type="number" min="0" max="25" step="0.1" style="padding-left:12px;padding-right:30px"><span style="left:auto;right:12px">%</span></div>
+      </div>
+      <div class="pref">
+        <span class="lab">Where you sell</span>
+        <p>Snag only recommends platforms you turn on here.</p>
+        <div class="plats" id="p-plats"></div>
+      </div>
+      <div class="pref">
+        <span class="lab">Saved data</span>
+        <div class="sync-note"><span class="sync-dot" id="syncDot"></span><span id="syncText">Checking where your finds are saved…</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="fine" style="margin-top:32px">Values are AI estimates from your photo or description, not guaranteed sale prices. Use the "Check real sales" links on each result to see actual sold listings before you spend big. Platform fees are approximate and change over time.</p>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+/* ======================================================================
+   Constants
+   ====================================================================== */
+const FEES = {
+  "eBay":                 { rate: 0.136, fixed: 0.40, title: 80 },
+  "Poshmark":             { rate: 0.20,  fixed: 0,    title: 80 },
+  "Mercari":              { rate: 0.10,  fixed: 0.50, title: 80 },
+  "Depop":                { rate: 0.033, fixed: 0.45, title: 0 },
+  "Etsy":                 { rate: 0.095, fixed: 0.45, title: 140 },
+  "Facebook Marketplace": { rate: 0,     fixed: 0,    title: 100 },
+  "Grailed":              { rate: 0.12,  fixed: 0,    title: 60 },
+  "Discogs":              { rate: 0.12,  fixed: 0,    title: 0 }
+};
+const PLATFORMS = Object.keys(FEES);
+const STATUSES = [["scanned","Checked"],["bought","Bought"],["listed","Listed"],["sold","Sold"]];
+const DEFAULT_PREFS = { minProfit: 10, mult: 2, tax: 0, platforms: PLATFORMS.slice() };
+const DAY = 864e5;
+const TAG_SVG = '<svg width="46" height="46" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M26 6h14a2 2 0 0 1 2 2v14L22 42a2 2 0 0 1-2.8 0L6 28.8a2 2 0 0 1 0-2.8Z"/><circle cx="34" cy="14" r="3"/><path d="M34 11c-3-6-10-7-14-3" stroke-dasharray="2 3"/><path d="m17 27 6-6M20 31l8-8" stroke-width="1.6" opacity=".55"/></svg>';
+async function copyToClipboard(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {}
+  try {
+    const ta = document.createElement("textarea"); ta.value = t; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    document.body.append(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove(); return ok;
+  } catch (e) { return false; }
+}
+const COMPS = [
+  ["eBay sold", q => `https://www.ebay.com/sch/i.html?_nkw=${q}&LH_Sold=1&LH_Complete=1`],
+  ["Poshmark sold", q => `https://poshmark.com/search?query=${q}&availability=sold_out`],
+  ["Mercari", q => `https://www.mercari.com/search/?keyword=${q}`],
+  ["Etsy", q => `https://www.etsy.com/search?q=${q}`],
+  ["Google Shopping", q => `https://www.google.com/search?tbm=shop&q=${q}`]
+];
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const money = n => { n = +n || 0; const a = Math.abs(n); const s = a >= 1000 ? Math.round(a).toLocaleString() : a >= 100 ? a.toFixed(0) : a.toFixed(2).replace(/\.00$/, ""); return (n < 0 ? "-$" : "$") + s; };
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function toast(t, action) {
+  const el = $("toast"); el.textContent = t;
+  if (action) { const b = document.createElement("button"); b.type = "button"; b.textContent = action.label; b.onclick = () => { el.hidden = true; action.fn(); }; el.append(b); }
+  el.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => el.hidden = true, action ? 5000 : 2200);
+}
+
+/* ======================================================================
+   Money logic (pure)
+   ====================================================================== */
+function feeFor(platform, price) { const f = FEES[platform] || FEES.eBay; return price > 0 ? price * f.rate + f.fixed : 0; }
+function profitAt(platform, price, ship, paid) { const fees = feeFor(platform, price); const net = price - fees - ship; return { fees, net, profit: net - paid }; }
+function costOf(paid) { return (+paid || 0) * (1 + Math.max(0, +store.prefs.tax || 0) / 100); }
+function verdictFor(profit, paid, net, confidence, prefs) {
+  const need = Math.max(prefs.minProfit, paid * (prefs.mult - 1));
+  let v = profit >= need && profit > 0 ? "buy" : profit > Math.min(3, need / 2) ? "maybe" : "skip";
+  if (v === "buy" && confidence === "low") v = "maybe";
+  return v;
+}
+function platformRows(est, paid, prefs) {
+  const allowed = prefs.platforms.length ? prefs.platforms : PLATFORMS;
+  let rows = (est.platforms || []).filter(p => FEES[p.platform] && allowed.includes(p.platform)).map(p => {
+    const low = Math.max(0, +p.low || 0), high = Math.max(low, +p.high || 0), mid = (low + high) / 2, ship = Math.max(0, +p.shipping || 0);
+    const r = profitAt(p.platform, mid, ship, paid);
+    return { platform: p.platform, low, high, mid, ship, ...r };
+  });
+  if (!rows.length && (est.platforms || []).length) { // nothing matches prefs: fall back to AI's list
+    rows = est.platforms.filter(p => FEES[p.platform]).map(p => { const low=+p.low||0, high=Math.max(low,+p.high||0), mid=(low+high)/2, ship=+p.shipping||0; return { platform:p.platform, low, high, mid, ship, ...profitAt(p.platform, mid, ship, paid) }; });
+  }
+  rows.sort((a, b) => b.profit - a.profit);
+  return rows;
+}
+
+/* ======================================================================
+   Storage: your account (db) when available, this browser otherwise
+   ====================================================================== */
+const store = {
+  mode: "local", items: new Map(), prefs: { ...DEFAULT_PREFS }, db: null, uid: null, col: null, prefDoc: null,
+  loadLocal() {
+    try { const a = JSON.parse(localStorage.getItem("snag-items") || "[]"); a.forEach(i => this.items.set(i.id, i)); } catch (e) {}
+    try { Object.assign(this.prefs, JSON.parse(localStorage.getItem("snag-prefs") || "{}")); } catch (e) {}
+  },
+  saveLocal() {
+    if (this.mode !== "local") return;
+    try { localStorage.setItem("snag-items", JSON.stringify([...this.items.values()])); localStorage.setItem("snag-prefs", JSON.stringify(this.prefs)); } catch (e) {}
+  },
+  list() { return [...this.items.values()].sort((a, b) => b.createdAt - a.createdAt); },
+  async put(item) {
+    item.updatedAt = Date.now(); this.items.set(item.id, item); renderAll();
+    if (this.mode === "db") { try { await this.col.doc(item.id).set(JSON.parse(JSON.stringify(item))); } catch (e) { handleDbError(e); } }
+    else this.saveLocal();
+  },
+  async remove(id) {
+    this.items.delete(id); renderAll();
+    if (this.mode === "db") { try { await this.col.doc(id).delete(); } catch (e) { handleDbError(e); } }
+    else this.saveLocal();
+  },
+  async savePrefs() {
+    renderAll(); if (current && !document.querySelector(".steps")) renderResult(false);
+    if (this.mode === "db") { try { await this.prefDoc.set({ ...this.prefs }); } catch (e) { handleDbError(e); } }
+    else this.saveLocal();
+  }
+};
+function handleDbError(e) {
+  if (e && (e.code === "quota_exceeded")) toast("Storage is full. Delete some old finds.");
+  else if (e && e.code === "invalid_argument") { toast("Couldn't save to your account. Saving in this browser instead."); store.mode = "local"; store.saveLocal(); setSync(); }
+  else toast("Couldn't save just now. Try again.");
+}
+function setSync() {
+  const ok = store.mode === "db";
+  $("syncDot").classList.toggle("ok", ok);
+  $("syncText").textContent = ok ? "Saved to your Claude account. Your finds follow you to any device and only you can see them." : "Saved in this browser only. Open Snag on claude.ai while signed in to save finds to your account.";
+}
+
+/* ======================================================================
+   Example (shown until the first real scan)
+   ====================================================================== */
+const EXAMPLE = {
+  id: "example", example: true, paid: 4.99, cond: "Good, light wear", status: "scanned", createdAt: 0,
+  thumb: "",
+  est: {
+    item_name: "Pyrex Butterprint Mixing Bowl, 2.5 qt", brand: "Pyrex", category: "Vintage kitchenware", era: "1957–1968",
+    confidence: "medium", demand: "high", sell_speed: "1–2 weeks",
+    platforms: [
+      { platform: "eBay", low: 28, high: 45, shipping: 12 },
+      { platform: "Etsy", low: 32, high: 50, shipping: 13 },
+      { platform: "Facebook Marketplace", low: 18, high: 28, shipping: 0 },
+      { platform: "Mercari", low: 24, high: 38, shipping: 12 }
+    ],
+    why: "Butterprint is one of the most collected Pyrex patterns. Bright turquoise print with no dishwasher fading is what buyers pay up for.",
+    value_drivers: ["Unfaded, glossy print", "Model #403 stamped on the bottom", "Complete sets of 401–404 sell at a premium"],
+    red_flags: ["Dishwasher haze or chalky print cuts value roughly in half", "Chips on the rim make it hard to sell"],
+    check: ["Run a finger around the rim for chips", "Hold it to the light to spot faded print", "Look for 403 on the base"],
+    listing_title: "Vintage Pyrex Butterprint 403 Mixing Bowl 2.5 Qt Turquoise Amish Rooster",
+    listing_description: "Vintage Pyrex Butterprint mixing bowl, #403, 2.5 quart. Turquoise print on white with the classic Amish farmer and rooster design. Print is bright with light utensil marks inside. No chips or cracks. Packed carefully with plenty of bubble wrap.",
+    keywords: ["pyrex", "butterprint", "vintage kitchen", "mid century", "turquoise", "amish", "mixing bowl"],
+    item_specifics: { Brand: "Pyrex", Pattern: "Butterprint", Model: "403", Capacity: "2.5 qt", Color: "Turquoise / White", Era: "1950s–60s" },
+    search_query: "Pyrex Butterprint 403 bowl"
+  }
+};
+
+/* ======================================================================
+   State
+   ====================================================================== */
+let sample = null;
+let mode = "photo";
+let photos = [null, null, null];        // File objects
+const SHOT_LABELS = [["Whole item", "Start here"], ["Tag or label", "Brand, size, model"], ["Flaws", "Optional"]];
+let current = null;                      // item being shown
+let view = { platform: null, price: null, ship: null, listingPlat: null };
+let chat = [];
+let filter = "all";
+
+/* ======================================================================
+   Tabs / routing
+   ====================================================================== */
+const VIEWS = ["scan", "finds", "stats", "prefs"];
+function showView(v) {
+  if (!VIEWS.includes(v)) v = "scan";
+  VIEWS.forEach(n => { $("v-" + n).hidden = n !== v; $("t-" + n).setAttribute("aria-selected", n === v); });
+  if (location.hash !== "#" + v) { try { history.replaceState(null, "", "#" + v); } catch (e) { location.hash = v; } }
+  window.scrollTo({ top: 0 });
+  if (v === "scan" && current && !document.querySelector(".steps")) renderResult(false);
+}
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => showView(t.dataset.view)));
+window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
+
+/* ======================================================================
+   Scan form
+   ====================================================================== */
+function setMode(m) {
+  mode = m;
+  $("m-photo").setAttribute("aria-pressed", m === "photo"); $("m-text").setAttribute("aria-pressed", m === "text");
+  $("photoMode").hidden = m !== "photo"; $("textMode").hidden = m !== "text";
+  updateGo();
+}
+$("m-photo").onclick = () => setMode("photo");
+$("m-text").onclick = () => setMode("text");
+$("desc").addEventListener("input", updateGo);
+$("desc").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !$("go").disabled) $("go").click(); });
+
+const CAM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L17 6h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+function renderShots() {
+  $("shots").innerHTML = photos.map((f, i) => `
+    <div class="shot ${f ? "filled" : ""}">
+      ${f ? `<img alt="Photo ${i + 1}" src="${f._url}"><button class="rm" type="button" data-rm="${i}" aria-label="Remove photo ${i + 1}">×</button>`
+          : `<div class="lbl">${i === 0 ? CAM : ""}<b>${SHOT_LABELS[i][0]}</b><span>${SHOT_LABELS[i][1]}</span></div>`}
+      ${f ? "" : `<input type="file" accept="image/*" ${i === 0 ? 'capture="environment"' : ""} multiple data-i="${i}" aria-label="Add ${SHOT_LABELS[i][0]} photo">`}
+    </div>`).join("");
+  $("shots").querySelectorAll("input[type=file]").forEach(inp => inp.addEventListener("change", e => {
+    const fs = [...(e.target.files || [])].filter(isImage); if (!fs.length) return;
+    fs[0]._url = URL.createObjectURL(fs[0]); photos[+inp.dataset.i] = fs[0]; fs.slice(1).forEach(addPhoto); renderShots(); updateGo();
+  }));
+  $("shots").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { photos[+b.dataset.rm] = null; renderShots(); updateGo(); });
+}
+const isImage = f => !f.type || f.type.startsWith("image/");
+function addPhoto(f) {
+  if (!f || !isImage(f)) return false;
+  const i = photos.findIndex(p => !p);
+  if (i < 0) { toast("All 3 photo spots are full. Remove one first."); return false; }
+  f._url = URL.createObjectURL(f); photos[i] = f; return true;
+}
+function addPhotos(list) {
+  const fs = [...(list || [])].filter(f => f.type && f.type.startsWith("image/"));
+  if (!fs.length) return false;
+  setMode("photo"); fs.forEach(addPhoto); renderShots(); updateGo(); return true;
+}
+document.addEventListener("paste", e => { if (!$("v-scan").hidden && addPhotos(e.clipboardData && e.clipboardData.files)) e.preventDefault(); });
+$("shots").addEventListener("dragover", e => { e.preventDefault(); $("shots").classList.add("drag"); });
+$("shots").addEventListener("dragleave", e => { if (!$("shots").contains(e.relatedTarget)) $("shots").classList.remove("drag"); });
+$("shots").addEventListener("drop", e => { e.preventDefault(); $("shots").classList.remove("drag"); addPhotos(e.dataTransfer && e.dataTransfer.files); });
+
+function updateGo() {
+  const has = mode === "photo" ? photos.some(Boolean) : $("desc").value.trim().length > 3;
+  $("go").disabled = !has || !sample;
+  if (has && !sample) setStatus("Open Snag on claude.ai to run checks. The example shows what you'll get.");
+  else if (has) setStatus("");
+}
+function setStatus(t, err) { $("status").textContent = t; $("status").className = "status" + (err ? " err" : ""); }
+
+async function shrink(f, max) {
+  const img = await createImageBitmap(f);
+  const s = Math.min(1, max / Math.max(img.width, img.height));
+  const c = document.createElement("canvas"); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+const toBlob = c => new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
+
+function buildPrompt(cond, text, nPhotos, correction) {
+  const allowed = (store.prefs.platforms.length ? store.prefs.platforms : PLATFORMS).join(", ");
+  return `You are an expert thrift reseller who knows recent SOLD prices (not asking prices) on eBay, Poshmark, Mercari, Depop, Etsy, Grailed, Discogs and Facebook Marketplace in the US.
+${nPhotos ? `You get ${nPhotos} photo(s) of one secondhand item: the first shows the whole item; others may show its tag/label or flaws.` : `The seller describes the item in words: """${text}"""`}
+Seller-reported condition: ${cond}.${correction ? `
+IMPORTANT: an earlier guess was wrong. The seller corrected it: """${correction}""". Trust the correction and re-price the item from scratch.` : ""}
+Identify it as specifically as you can (brand, model, pattern, size, era). Be honest: unbranded or common items are often worth very little, and say so. If you can't identify it, set confidence "low".
+Estimate realistic SOLD price ranges for 2 to 4 platforms where it sells best, choosing only from: ${allowed}. Use Facebook Marketplace (shipping 0) for furniture or bulky items. Give a realistic shipping cost the seller pays for each shipped platform.
+Reply with ONLY a JSON object, no prose:
+{"item_name": string, "brand": string, "category": string, "era": string,
+ "confidence": "low"|"medium"|"high", "demand": "low"|"medium"|"high", "sell_speed": string like "1–2 weeks",
+ "platforms": [{"platform": string, "low": number, "high": number, "shipping": number}],
+ "why": string (2 sentences on what drives the value),
+ "value_drivers": [up to 3 short phrases],
+ "red_flags": [up to 3 short phrases: damage, fakes or issues that cut value],
+ "check": [up to 3 quick things to inspect in the store],
+ "listing_title": string (max 80 chars, keyword-rich),
+ "listing_description": string (3–5 honest sentences matching the condition),
+ "keywords": [5–8 lowercase search keywords],
+ "item_specifics": {up to 6 key: value pairs like Brand, Size, Color, Material, Model, Era},
+ "search_query": string (short query to find sold comps),
+ "price_on_tag": number or null (the store's asking price if a thrift price sticker or tag is readable in a photo, else null)}`;
+}
+
+let stepTimers = [];
+function showSteps() {
+  const steps = mode === "photo" ? ["Reading your photos", "Estimating sold prices", "Running the numbers"] : ["Reading your description", "Estimating sold prices", "Running the numbers"];
+  $("resultCol").innerHTML = `<div class="steps" aria-label="Checking">${steps.map((s, i) => `<div class="step" id="st${i}"><i></i>${s}</div>`).join("")}</div>`;
+  const set = (i) => { for (let k = 0; k < 3; k++) { const el = $("st" + k); if (!el) return; el.className = "step" + (k < i ? " done" : k === i ? " on" : ""); if (k < i) el.querySelector("i").textContent = "✓"; } };
+  set(0); stepTimers = [setTimeout(() => set(1), 2500), setTimeout(() => set(2), 6500)];
+}
+
+$("go").addEventListener("click", async () => {
+  if (!sample) return;
+  let paid = Math.max(0, parseFloat($("price").value) || 0);
+  const typedPrice = $("price").value.trim() !== "";
+  let readTag = false;
+  const cond = $("cond").value;
+  const text = $("desc").value.trim();
+  const files = mode === "photo" ? photos.filter(Boolean) : [];
+  $("go").disabled = true; setStatus("");
+  showSteps();
+  if (matchMedia("(max-width: 1020px)").matches) $("resultCol").scrollIntoView({ behavior: "smooth", block: "start" });
+  try {
+    const canvases = await Promise.all(files.map(f => shrink(f, 1024)));
+    const blobs = await Promise.all(canvases.map(toBlob));
+    let thumb = "";
+    if (files[0]) { const tc = await shrink(files[0], 240); thumb = tc.toDataURL("image/jpeg", 0.7); }
+    const opts = { modelTier: "default" };
+    if (blobs.length) opts.images = blobs;
+    const est = await sample.json(buildPrompt(cond, text, blobs.length), opts);
+    if (!est || !est.item_name || !Array.isArray(est.platforms)) throw { message: "empty" };
+    if (!typedPrice && +est.price_on_tag > 0) { paid = Math.round(+est.price_on_tag * 100) / 100; readTag = true; }
+    const item = { id: uid(), paid, cond, est, thumb, status: "scanned", soldPrice: null, createdAt: Date.now(), source: mode };
+    lastScan = { id: item.id, blobs };
+    stepTimers.forEach(clearTimeout);
+    store.put(item);
+    openItem(item, true);
+    if (readTag) toast(`Read the price sticker: ${money(paid)}. Change it on the result if that's wrong.`);
+    // reset inputs for the next find
+    photos = [null, null, null]; renderShots(); $("desc").value = ""; $("price").value = ""; updateGo();
+  } catch (err) {
+    stepTimers.forEach(clearTimeout);
+    openItem(current || EXAMPLE, false);
+    if (err && err.code === "rate_limited") setStatus("Too many checks in a row. Wait a minute, then try again.", true);
+    else if (err && err.code === "not_granted") setStatus("Snag needs your OK to use AI. Allow it when asked, then try again.", true);
+    else setStatus(mode === "photo" ? "Couldn't read that. Try a closer, brighter photo with the label in view." : "Couldn't price that. Add the brand, model or size and try again.", true);
+    $("go").disabled = false;
+  }
+});
+
+/* ======================================================================
+   Result rendering
+   ====================================================================== */
+function openItem(item, fresh) {
+  current = item; chat = [];
+  const rows = platformRows(item.est, costOf(item.paid), store.prefs);
+  view = { platform: rows[0] ? rows[0].platform : "eBay", price: null, ship: null, listingPlat: null };
+  renderResult(fresh);
+}
+
+function calc() {
+  const item = current, est = item.est;
+  const cost = costOf(item.paid);
+  const rows = platformRows(est, cost, store.prefs);
+  const row = rows.find(r => r.platform === view.platform) || rows[0] || { platform: "eBay", low: 0, high: 0, mid: 0, ship: 0 };
+  const price = view.price ?? row.mid;
+  const ship = view.ship ?? row.ship;
+  const p = profitAt(row.platform, price, ship, cost);
+  const taxMult = 1 + Math.max(0, +store.prefs.tax || 0) / 100;
+  const maxPay = Math.max(0, p.net / store.prefs.mult / taxMult);
+  const need = Math.max(store.prefs.minProfit, cost * (store.prefs.mult - 1));
+  const verdict = verdictFor(p.profit, cost, p.net, est.confidence, store.prefs);
+  return { rows, row, price, ship, ...p, cost, maxPay, need, verdict };
+}
+
+function renderResult(fresh) {
+  const item = current, est = item.est, c = calc();
+  const L = { buy: ["BUY", "good flip"], maybe: ["MAYBE", "thin margin"], skip: ["SKIP", "leave it"] }[c.verdict];
+  const confN = { low: 1, medium: 2, high: 3 }[est.confidence] || 2;
+  const q = encodeURIComponent(est.search_query || est.item_name || "");
+  const lp = view.listingPlat || c.row.platform;
+  const roi = c.cost > 0 ? Math.round(c.profit / c.cost * 100) : null;
+  const canFix = !item.example && !!sample;
+  const sliderMin = Math.max(0, Math.floor(c.row.low * 0.6)), sliderMax = Math.max(5, Math.ceil(c.row.high * 1.4));
+  const saved = store.items.has(item.id);
+
+  $("resultCol").innerHTML = `
+  <article class="tag">
+    <span class="tag-hole" aria-hidden="true"></span>
+    <div class="tag-head">
+      <div class="tag-thumb" style="${item.thumb ? `background-image:url('${item.thumb}')` : ""}" aria-hidden="true">${item.thumb ? "" : TAG_SVG}</div>
+      <div>
+        ${item.example ? `<span class="example-flag">Example</span>` : ""}
+        <p class="meta">${esc([est.brand, est.category, est.era].filter(Boolean).join(" · "))}</p>
+        <h2 class="item-name">${esc(est.item_name)}</h2>
+        <span class="conf"><span class="conf-bar">${[1,2,3].map(n => `<span class="${n <= confN ? "f" : ""}"></span>`).join("")}</span>${esc(est.confidence || "medium")} confidence · ${esc(item.cond || "")}</span>
+        ${item.corrected ? `<p class="fixed-note">Re-checked with your note: “${esc(item.corrected)}”</p>` : ""}
+        ${canFix ? `<div><button type="button" class="linkish" id="fixBtn" aria-expanded="false" aria-controls="fixForm">Not right? Correct it</button></div>` : ""}
+      </div>
+      <div class="sticker v-${c.verdict} ${fresh ? "slap" : ""}" role="img" aria-label="Verdict: ${L[0]}, ${L[1]}"><div>${L[0]}<small>${L[1]}</small></div></div>
+    </div>
+    ${canFix ? `<form class="tag-fix" id="fixForm" hidden>
+      <label for="fixIn">What is it really? Add the brand, model, size or anything Snag missed.</label>
+      <div class="fix-row"><input type="text" id="fixIn" placeholder="e.g. It's a 1970s Pendleton wool shirt, size L"><button class="btn" type="submit" id="fixGo" style="padding:11px 18px">Re-check</button></div>
+    </form>` : ""}
+
+    <div class="big-nums">
+      <div class="big-num"><b>${money(c.row.low)}–${money(c.row.high)}</b><span>Sells for on ${esc(c.row.platform)}</span></div>
+      <div class="big-num hi ${c.profit < 0 ? "neg" : ""}"><b>${money(c.profit)}</b><span>Your profit${roi !== null ? ` · ${roi}% return` : ""}</span></div>
+      <div class="big-num"><b>${money(c.maxPay)}</b><span>Max to pay for ${store.prefs.mult}×</span></div>
+    </div>
+
+    <div class="tag-body">
+      <section>
+        <h3>Where to sell it <small>tap a row to compare</small></h3>
+        <table class="plat">
+          <thead><tr><th>Platform</th><th class="r">Sells for</th><th class="r">Fees + ship</th><th class="r">Profit</th></tr></thead>
+          <tbody>${c.rows.map((r, i) => `
+            <tr class="row ${r.platform === c.row.platform ? "sel" : ""}" tabindex="0" data-plat="${esc(r.platform)}">
+              <td>${esc(r.platform)}${i === 0 ? '<span class="best">BEST</span>' : ""}</td>
+              <td class="r">${money(r.mid)}</td><td class="r">${money(r.fees + r.ship)}</td><td class="r"><b>${money(r.profit)}</b></td>
+            </tr>`).join("")}</tbody>
+        </table>
+        <div class="chips">
+          <span class="chip">Demand <b>${esc(est.demand || "?")}</b></span>
+          <span class="chip">Sells in <b>${esc(est.sell_speed || "?")}</b></span>
+        </div>
+        <p class="why">${esc(est.why)}</p>
+      </section>
+      <section>
+        <div class="receipt" aria-label="Profit breakdown">
+          <div class="rt">*** PROFIT RECEIPT ***</div>
+          <div class="ln"><span>SALE PRICE</span><span id="rc-price">${money(c.price)}</span></div>
+          <div class="ln"><span>${esc(c.row.platform.toUpperCase())} FEES</span><span id="rc-fees">-${money(c.fees)}</span></div>
+          <div class="ln"><span>SHIPPING</span><span>-${money(c.ship)}</span></div>
+          <div class="ln"><span>PRICE TAG</span><span>-${money(item.paid)}</span></div>
+          ${c.cost > item.paid ? `<div class="ln"><span>SALES TAX ${+store.prefs.tax}%</span><span>-${money(c.cost - item.paid)}</span></div>` : ""}
+          <div class="ln tot"><span>YOU MAKE</span><span id="rc-total">${money(c.profit)}</span></div>
+          <div class="roi" id="rc-roi">${roi !== null ? `${roi}% RETURN ON ${money(c.cost)}` : ""}</div>
+          <div class="roi">BUY NEEDS ${money(c.need)}+ PROFIT</div>
+        </div>
+        <div class="tune">
+          <div class="tune-row"><label for="r-price">What if it sells for…</label><output id="o-price">${money(c.price)}</output>
+            <input type="range" id="r-price" min="${sliderMin}" max="${sliderMax}" step="1" value="${Math.round(c.price)}"></div>
+          <div class="fields">
+            <div class="field"><label for="i-ship">Shipping you pay</label><div class="money-in"><span>$</span><input id="i-ship" type="number" min="0" step="0.5" value="${+c.ship.toFixed(2)}"></div></div>
+            <div class="field"><label for="i-paid">Price tag</label><div class="money-in"><span>$</span><input id="i-paid" type="number" min="0" step="0.5" value="${+(+item.paid).toFixed(2)}"></div></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="tag-body">
+      <section>
+        <h3>Check before you buy</h3>
+        ${(est.check || []).length ? `<ul class="bul">${est.check.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${(est.red_flags || []).length ? `<div class="lab">Red flags</div><ul class="bul flags">${est.red_flags.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      </section>
+      <section>
+        <h3>What makes it valuable</h3>
+        ${(est.value_drivers || []).length ? `<ul class="bul drivers">${est.value_drivers.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="meta">Nothing special to look for.</p>`}
+      </section>
+    </div>
+
+    <div class="tag-full">
+      <h3>Your listing, ready to post</h3>
+      <div class="ptabs" role="group" aria-label="Listing format">${PLATFORMS.filter(p => p !== "Discogs" || lp === "Discogs").map(p => `<button type="button" class="btn-s ${p === lp ? "on" : ""}" data-lp="${esc(p)}">${esc(p === "Facebook Marketplace" ? "Facebook" : p)}</button>`).join("")}</div>
+      ${renderListing(est, lp, c.price)}
+    </div>
+
+    <div class="tag-full">
+      <h3>Ask about this item</h3>
+      <div class="ask-log" id="askLog">${chat.map(m => `<div class="msg ${m.role === "user" ? "me" : "ai"}">${esc(m.content)}</div>`).join("")}</div>
+      ${chat.length ? "" : `<div class="suggest">${["How do I tell if it's real?", "How should I photograph it?", "Should I bundle it?", "What's a good opening price?"].map(s => `<button type="button" data-q="${esc(s)}">${esc(s)}</button>`).join("")}</div>`}
+      <form class="ask-row" id="askForm"><input type="text" id="askIn" placeholder="${sample ? "Ask anything about pricing, selling or spotting fakes" : "Open on claude.ai to ask questions"}" ${sample ? "" : "disabled"} aria-label="Your question"><button class="btn" type="submit" ${sample ? "" : "disabled"} style="padding:11px 18px">Ask</button></form>
+    </div>
+
+    <div class="tag-actions">
+      ${item.example ? `<span class="meta">This is an example. Check your own find to save it.</span>`
+        : saved ? `<button class="btn-s" type="button" id="markBought">${item.status === "scanned" ? "I bought it" : "View in My finds"}</button>` : ""}
+      <div class="comps"><span class="lab">Check real sales:</span>${COMPS.map(([n, f]) => `<a href="${f(q)}" target="_blank" rel="noopener">${n} ↗</a>`).join("")}</div>
+    </div>
+  </article>`;
+
+  // wiring
+  $("resultCol").querySelectorAll("tr.row").forEach(tr => {
+    const pick = () => { view.platform = tr.dataset.plat; view.price = null; view.ship = null; view.listingPlat = null; renderResult(false); };
+    tr.onclick = pick; tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+  });
+  $("r-price").oninput = e => { view.price = +e.target.value; refreshNumbers(); };
+  $("r-price").onchange = () => renderResult(false);
+  $("i-ship").onchange = e => { view.ship = Math.max(0, +e.target.value || 0); renderResult(false); };
+  $("i-paid").onchange = e => { current.paid = Math.max(0, +e.target.value || 0); if (!current.example && store.items.has(current.id)) store.put(current); renderResult(false); };
+  $("resultCol").querySelectorAll("[data-lp]").forEach(b => b.onclick = () => { view.listingPlat = b.dataset.lp; renderResult(false); });
+  $("resultCol").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copyText(b.dataset.copy, b));
+  $("resultCol").querySelectorAll("[data-q]").forEach(b => b.onclick = () => ask(b.dataset.q));
+  $("askForm").onsubmit = e => { e.preventDefault(); const v = $("askIn").value.trim(); if (v) ask(v); };
+  const mb = $("markBought");
+  const fb = $("fixBtn"), ff = $("fixForm");
+  if (fb && ff) {
+    fb.onclick = () => { ff.hidden = !ff.hidden; fb.setAttribute("aria-expanded", !ff.hidden); if (!ff.hidden) $("fixIn").focus(); };
+    ff.onsubmit = e => { e.preventDefault(); const v = $("fixIn").value.trim(); if (v.length > 2) recheck(v); else $("fixIn").focus(); };
+  }
+  if (fresh && navigator.vibrate) { try { navigator.vibrate(c.verdict === "buy" ? [30, 60, 30] : 25); } catch (e) {} }
+  if (mb) mb.onclick = () => { if (current.status === "scanned") { current.status = "bought"; current.boughtAt = current.boughtAt || Date.now(); store.put(current); toast("Moved to Bought"); renderResult(false); } else showView("finds"); };
+}
+
+function refreshNumbers() {
+  // light update while dragging the slider
+  const c = calc();
+  $("o-price").textContent = money(c.price);
+  const rc = document.querySelector(".receipt");
+  if (rc) {
+    $("rc-price").textContent = money(c.price); $("rc-fees").textContent = "-" + money(c.fees); $("rc-total").textContent = money(c.profit);
+    $("rc-roi").textContent = c.cost > 0 ? `${Math.round(c.profit / c.cost * 100)}% RETURN ON ${money(c.cost)}` : "";
+  }
+  const hi = document.querySelector(".big-num.hi b"); if (hi) hi.textContent = money(c.profit);
+}
+
+let lastScan = { id: null, blobs: [] };
+async function recheck(correction) {
+  if (!sample || !current || current.example) return;
+  const item = current;
+  const blobs = lastScan.id === item.id ? lastScan.blobs : [];
+  const text = blobs.length ? "" : [item.est.item_name, item.est.brand, item.est.category].filter(Boolean).join(", ");
+  const go = $("fixGo"); if (go) { go.disabled = true; go.textContent = "Checking…"; }
+  try {
+    const opts = { modelTier: "default" };
+    if (blobs.length) opts.images = blobs;
+    const est = await sample.json(buildPrompt(item.cond, text, blobs.length, correction), opts);
+    if (!est || !est.item_name || !Array.isArray(est.platforms)) throw { message: "empty" };
+    item.est = est; item.corrected = correction;
+    store.put(item);
+    openItem(item, true);
+    toast("Re-checked with your correction");
+  } catch (err) {
+    if (go) { go.disabled = false; go.textContent = "Re-check"; }
+    toast(err && err.code === "rate_limited" ? "Too many checks in a row. Wait a minute, then try again." : "Couldn't re-check that. Add a bit more detail and try again.");
+  }
+}
+
+let listingTexts = {};
+function renderListing(est, plat, price) {
+  const f = FEES[plat] || FEES.eBay;
+  let title = (est.listing_title || est.item_name || "").trim();
+  if (f.title && title.length > f.title) title = title.slice(0, f.title).replace(/\s+\S*$/, "");
+  const kw = (est.keywords || []).map(k => String(k).toLowerCase());
+  let desc = (est.listing_description || "").trim();
+  const specs = est.item_specifics || {};
+  if (plat === "Depop") {
+    desc = `${est.item_name}\n\n${desc}\n\n${kw.slice(0, 5).map(k => "#" + k.replace(/[^a-z0-9]/g, "")).join(" ")}`;
+  } else if (plat === "Poshmark") {
+    const sz = specs.Size ? `Size: ${specs.Size}\n` : "";
+    desc = `${desc}\n\n${sz}Bundle to save! Ships fast.`;
+  } else if (plat === "Facebook Marketplace") {
+    desc = `${desc}\n\nAsking ${money(Math.round(price))}. Cash or Venmo. Pickup or local meetup.`;
+  } else if (plat === "eBay") {
+    desc = `${desc}\n\n${Object.entries(specs).map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nPlease see all photos for condition. Ships within 1 business day.`;
+  } else if (plat === "Mercari" || plat === "Etsy" || plat === "Grailed") {
+    desc = `${desc}\n\nTags: ${kw.join(", ")}`;
+  }
+  listingTexts = { title, desc, all: (f.title ? title + "\n\n" : "") + desc };
+  const showSpecs = Object.keys(specs).length && (plat === "eBay" || plat === "Etsy" || plat === "Mercari");
+  return `<div class="listing">
+    ${f.title ? `<div class="lfield"><div class="lfield-head"><span class="lab">Title</span><span class="charcount">${title.length}/${f.title}</span><button class="btn-s" type="button" data-copy="title">Copy</button></div><div class="txt title">${esc(title)}</div></div>` : ""}
+    <div class="lfield"><div class="lfield-head"><span class="lab">Description</span><button class="btn-s" type="button" data-copy="desc">Copy</button></div><div class="txt">${esc(desc)}</div></div>
+    ${showSpecs ? `<div class="lfield"><span class="lab">Item specifics</span><div class="specs">${Object.entries(specs).map(([k, v]) => `<div class="spec"><span>${esc(k)}</span>${esc(v)}</div>`).join("")}</div></div>` : ""}
+    <div><button class="btn yellow" type="button" data-copy="all" style="padding:11px 18px;font-size:15px">Copy whole listing</button> <span class="meta" style="margin-left:8px">Suggested price ${money(Math.round(price))}</span></div>
+  </div>`;
+}
+async function copyText(key, btn) {
+  const t = listingTexts[key] || "";
+  if (await copyToClipboard(t)) { const o = btn.textContent; btn.textContent = "Copied ✓"; setTimeout(() => btn.textContent = o, 1500); }
+  else toast("Couldn't copy. Select the text and copy it yourself.");
+}
+
+async function ask(q) {
+  if (!sample || !current) return;
+  const est = current.est;
+  chat.push({ role: "user", content: q });
+  const log = $("askLog");
+  log.insertAdjacentHTML("beforeend", `<div class="msg me">${esc(q)}</div><div class="msg ai" id="pending">Thinking…</div>`);
+  document.querySelector(".suggest")?.remove();
+  $("askIn").value = ""; log.scrollTop = log.scrollHeight;
+  const context = `You are Snag, a friendly expert thrift reseller. Answer in under 120 words, plain text, practical and specific. No markdown.
+Item: ${est.item_name} (${[est.brand, est.category, est.era].filter(Boolean).join(", ")}). Condition: ${current.cond}. Paid: $${current.paid}.
+Estimated sold prices: ${(est.platforms || []).map(p => `${p.platform} $${p.low}-${p.high}`).join("; ")}.`;
+  const msgs = chat.map((m, i) => ({ role: m.role, content: i === 0 ? context + "\n\nQuestion: " + m.content : m.content }));
+  try {
+    const res = await sample(msgs, { modelTier: "quick", cache: false, onText: ({ text }) => { const p = $("pending"); if (p) p.textContent = text; log.scrollTop = log.scrollHeight; } });
+    chat.push({ role: "assistant", content: res.text });
+    const p = $("pending"); if (p) { p.textContent = res.text; p.removeAttribute("id"); }
+  } catch (e) {
+    chat.pop();
+    const p = $("pending"); if (p) { p.textContent = e && e.code === "rate_limited" ? "Too many questions at once. Try again in a minute." : "Couldn't answer that just now. Try again."; p.removeAttribute("id"); }
+  }
+}
+
+/* ======================================================================
+   Finds
+   ====================================================================== */
+function itemNumbers(it) {
+  const cost = costOf(it.paid);
+  const rows = platformRows(it.est, cost, store.prefs);
+  const r = rows[0] || { platform: "eBay", mid: 0, ship: 0 };
+  const exp = profitAt(r.platform, r.mid, r.ship, cost);
+  const verdict = verdictFor(exp.profit, cost, exp.net, it.est.confidence, store.prefs);
+  let real = null;
+  if (it.status === "sold" && it.soldPrice != null) real = profitAt(r.platform, +it.soldPrice, r.ship, cost).profit;
+  return { r, expProfit: exp.profit, verdict, real };
+}
+function ageNote(it) {
+  const now = Date.now();
+  if (it.status === "listed") {
+    const d = Math.max(0, Math.floor((now - (it.listedAt || it.updatedAt || it.createdAt)) / DAY));
+    return `<span class="age ${d >= 30 ? "stale" : ""}">${d === 0 ? "Listed today" : `Listed ${d} day${d === 1 ? "" : "s"}`}${d >= 30 ? " · try a 10–15% price drop" : ""}</span>`;
+  }
+  if (it.status === "bought") {
+    const d = Math.max(0, Math.floor((now - (it.boughtAt || it.updatedAt || it.createdAt)) / DAY));
+    return d >= 7 ? `<span class="age stale">Bought ${d} days ago · not listed yet</span>` : "";
+  }
+  if (it.status === "sold" && it.soldAt) {
+    const d = Math.max(0, Math.round((it.soldAt - (it.boughtAt || it.createdAt)) / DAY));
+    return `<span class="age">Sold in ${d} day${d === 1 ? "" : "s"}</span>`;
+  }
+  return "";
+}
+let findQ = "", findSort = "new";
+function renderFinds() {
+  const items = store.list();
+  $("findCount").textContent = items.length;
+  const counts = { all: items.length }; STATUSES.forEach(([k]) => counts[k] = items.filter(i => i.status === k).length);
+  $("filters").innerHTML = [["all", "All"], ...STATUSES].map(([k, l]) => `<button type="button" class="btn-s ${filter === k ? "on" : ""}" data-f="${k}">${l} · ${counts[k]}</button>`).join("");
+  $("filters").querySelectorAll("[data-f]").forEach(b => b.onclick = () => { filter = b.dataset.f; renderFinds(); });
+  let shown = items.filter(i => filter === "all" || i.status === filter);
+  if (findQ) shown = shown.filter(i => [i.est.item_name, i.est.brand, i.est.category].join(" ").toLowerCase().includes(findQ));
+  if (findSort === "profit") { const pr = i => { const n = itemNumbers(i); return n.real ?? n.expProfit; }; shown = shown.slice().sort((a, b) => pr(b) - pr(a)); }
+  else if (findSort === "old") shown = shown.slice().sort((a, b) => a.createdAt - b.createdAt);
+  if (!items.length) {
+    $("findsGrid").innerHTML = `<div class="empty" style="grid-column:1/-1"><b>No finds yet</b><span>Check an item on the Scan tab and it lands here automatically.</span><button class="btn yellow" type="button" id="goScan">Check your first find</button></div>`;
+    $("goScan").onclick = () => showView("scan"); return;
+  }
+  if (!shown.length) { $("findsGrid").innerHTML = `<div class="empty" style="grid-column:1/-1"><b>Nothing here</b><span>No finds match. Try another filter or search.</span></div>`; return; }
+  $("findsGrid").innerHTML = shown.map(it => {
+    const n = itemNumbers(it);
+    const L = { buy: "BUY", maybe: "MAYBE", skip: "SKIP" }[n.verdict];
+    return `<article class="find" data-id="${esc(it.id)}">
+      <div class="find-img" style="${it.thumb ? `background-image:url('${it.thumb}')` : ""}">${it.thumb ? "" : TAG_SVG}<span class="sticker mini v-${n.verdict}">${L}</span></div>
+      <div class="find-body">
+        <h4>${esc(it.est.item_name)}</h4>
+        <p class="meta">${esc(n.r.platform)} · ${new Date(it.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>
+        ${ageNote(it)}
+        <div class="find-nums"><span>Paid <b>${money(it.paid)}</b></span><span>${n.real !== null ? `Made <b>${money(n.real)}</b>` : `Est. profit <b>${money(n.expProfit)}</b>`}</span></div>
+      </div>
+      <div>
+        <div class="pipeline" role="group" aria-label="Status">${STATUSES.map(([k, l]) => `<button type="button" class="${it.status === k ? "on" : ""}" data-st="${k}" aria-pressed="${it.status === k}">${l}</button>`).join("")}</div>
+        <div class="find-foot">
+          ${it.status === "sold" ? `<span class="sold-in"><label for="sp-${esc(it.id)}">Sold for</label><span class="money-in"><span>$</span><input id="sp-${esc(it.id)}" type="number" min="0" step="0.5" value="${it.soldPrice ?? ""}" data-sp></span></span>` : ""}
+          <button class="linkbtn" type="button" data-open>Open</button>
+          <button class="linkbtn del" type="button" data-del>Delete</button>
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+  $("findsGrid").querySelectorAll(".find").forEach(card => {
+    const it = store.items.get(card.dataset.id);
+    card.querySelectorAll("[data-st]").forEach(b => b.onclick = () => { it.status = b.dataset.st; if (it.status !== "scanned" && !it[it.status + "At"]) it[it.status + "At"] = Date.now(); if (it.status === "sold" && it.soldPrice == null) it.soldPrice = Math.round(itemNumbers(it).r.mid); store.put(it); });
+    const sp = card.querySelector("[data-sp]"); if (sp) sp.onchange = () => { it.soldPrice = Math.max(0, +sp.value || 0); store.put(it); };
+    card.querySelector("[data-open]").onclick = () => { openItem(it, false); showView("scan"); };
+    card.querySelector("[data-del]").onclick = () => {
+      store.remove(it.id);
+      if (current && current.id === it.id) openItem(EXAMPLE, false);
+      toast("Find deleted.", { label: "Undo", fn: () => store.put(it) });
+    };
+  });
+}
+
+$("findQ").addEventListener("input", e => { findQ = e.target.value.trim().toLowerCase(); renderFinds(); });
+$("findSort").onchange = e => { findSort = e.target.value; renderFinds(); };
+$("copySheet").onclick = async () => {
+  const items = store.list();
+  if (!items.length) { toast("No finds to copy yet."); return; }
+  const d = t => t ? new Date(t).toLocaleDateString() : "";
+  const clean = v => String(v ?? "").replace(/[\t\n\r]+/g, " ");
+  const head = ["Item", "Brand", "Category", "Status", "Price tag", "Cost with tax", "Best platform", "Est. profit", "Sold for", "Real profit", "Checked", "Bought", "Listed", "Sold"];
+  const rows = items.map(i => {
+    const n = itemNumbers(i);
+    return [i.est.item_name, i.est.brand, i.est.category, (STATUSES.find(s => s[0] === i.status) || [])[1], (+i.paid || 0).toFixed(2), costOf(i.paid).toFixed(2), n.r.platform, n.expProfit.toFixed(2), i.soldPrice ?? "", n.real == null ? "" : n.real.toFixed(2), d(i.createdAt), d(i.boughtAt), d(i.listedAt), d(i.soldAt)].map(clean).join("\t");
+  });
+  if (await copyToClipboard([head.join("\t"), ...rows].join("\n"))) toast(`Copied ${items.length} find${items.length === 1 ? "" : "s"}. Paste into Google Sheets or Excel.`);
+  else toast("Couldn't copy. Your browser blocked the clipboard.");
+};
+
+/* ======================================================================
+   Stats
+   ====================================================================== */
+function renderStats() {
+  const items = store.list();
+  const bought = items.filter(i => i.status !== "scanned");
+  const sold = items.filter(i => i.status === "sold");
+  const shelf = items.filter(i => i.status === "bought" || i.status === "listed");
+  const spent = bought.reduce((s, i) => s + costOf(i.paid), 0);
+  const made = sold.reduce((s, i) => s + (itemNumbers(i).real ?? 0), 0);
+  const revenue = sold.reduce((s, i) => s + (+i.soldPrice || 0), 0);
+  const shelfProfit = shelf.reduce((s, i) => s + itemNumbers(i).expProfit, 0);
+  const sellThrough = bought.length ? Math.round(sold.length / bought.length * 100) : 0;
+  const soldCost = sold.reduce((s, i) => s + costOf(i.paid), 0);
+  const days = sold.filter(i => i.soldAt).map(i => Math.max(0, (i.soldAt - (i.boughtAt || i.createdAt)) / DAY));
+  const avgDays = days.length ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : null;
+  const roi = soldCost > 0 ? Math.round(made / soldCost * 100) : null;
+  $("kpis").innerHTML = `
+    <div class="kpi hi"><span>Profit made</span><b>${money(made)}</b><small>from ${sold.length} sold item${sold.length === 1 ? "" : "s"}</small></div>
+    <div class="kpi"><span>On the shelf</span><b>${money(shelfProfit)}</b><small>expected from ${shelf.length} unsold</small></div>
+    <div class="kpi"><span>Spent at stores</span><b>${money(spent)}</b><small>${money(revenue)} in sales</small></div>
+    <div class="kpi"><span>Sell-through</span><b>${sellThrough}%</b><small>${roi !== null ? roi + "% return on sold items" : "of items you bought"}${avgDays !== null ? ` · sells in ~${avgDays} day${avgDays === 1 ? "" : "s"}` : ""}</small></div>`;
+  const counts = STATUSES.map(([k, l]) => [l, items.filter(i => i.status === k).length]);
+  const maxC = Math.max(1, ...counts.map(c => c[1]));
+  $("funnel").innerHTML = items.length ? counts.map(([l, n], i) => `<div class="fbar"><span>${l}</span><div class="track"><div class="fill ${i === 3 ? "y" : ""}" style="width:${n / maxC * 100}%"></div></div><b>${n}</b></div>`).join("")
+    : `<p class="meta">Check a few items and your pipeline shows up here.</p>`;
+  const top = sold.map(i => [i, itemNumbers(i).real ?? 0]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  $("topList").innerHTML = top.length ? top.map(([i, p]) => `<li><span>${esc(i.est.item_name)}</span><b>${money(p)}</b></li>`).join("")
+    : `<li><span class="meta">Mark items as Sold to see your best flips.</span></li>`;
+}
+
+/* ======================================================================
+   Preferences
+   ====================================================================== */
+function renderPrefs() {
+  $("p-min").value = store.prefs.minProfit;
+  $("p-mult").value = String(store.prefs.mult);
+  $("p-tax").value = +store.prefs.tax || 0;
+  $("p-plats").innerHTML = PLATFORMS.map(p => `<button type="button" class="btn-s ${store.prefs.platforms.includes(p) ? "on" : ""}" data-pp="${esc(p)}" aria-pressed="${store.prefs.platforms.includes(p)}">${esc(p)}</button>`).join("");
+  $("p-plats").querySelectorAll("[data-pp]").forEach(b => b.onclick = () => {
+    const p = b.dataset.pp, s = new Set(store.prefs.platforms);
+    s.has(p) ? s.delete(p) : s.add(p);
+    if (!s.size) { toast("Keep at least one platform on."); return; }
+    store.prefs.platforms = PLATFORMS.filter(x => s.has(x)); store.savePrefs();
+  });
+}
+$("p-min").onchange = e => { store.prefs.minProfit = Math.max(0, +e.target.value || 0); store.savePrefs(); };
+$("p-mult").onchange = e => { store.prefs.mult = +e.target.value || 2; store.savePrefs(); };
+$("p-tax").onchange = e => { store.prefs.tax = Math.min(25, Math.max(0, +e.target.value || 0)); store.savePrefs(); };
+
+function renderAll() {
+  renderFinds(); renderStats(); renderPrefs();
+}
+
+/* ======================================================================
+   Boot
+   ====================================================================== */
+store.loadLocal();
+renderShots();
+showView(location.hash.slice(1) || "scan");
+openItem(EXAMPLE, false);
+renderAll();
+setSync();
+updateGo();
+
+(async () => {
+  for (let i = 0; i < 50 && !(window.claude && window.claude.use); i++) await new Promise(r => setTimeout(r, 100));
+  if (!(window.claude && window.claude.use)) { updateGo(); return; }
+
+  // AI
+  try {
+    const s = await window.claude.use("sample");
+    if (s) { const lim = await s.limits(); if (lim && lim.images) sample = s; }
+  } catch (e) {}
+  updateGo();
+  if (current) renderResult(false);
+
+  // Account storage
+  try {
+    const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
+    const id = user ? await user.id() : null;
+    if (!db || !id) return;
+    store.db = db; store.uid = id;
+    const base = db.doc("data/users/" + id + "/profile");
+    store.col = base.collection("items");
+    store.prefDoc = db.doc("data/users/" + id + "/prefs");
+    const localItems = [...store.items.values()];
+    const pref = await store.prefDoc.get();
+    store.mode = "db";
+    if (pref.exists) Object.assign(store.prefs, DEFAULT_PREFS, pref.data());
+    store.items.clear();
+    let first = true;
+    const timer = setTimeout(() => toast("Your saved finds are taking a while to load."), 10000);
+    store.col.orderBy("createdAt", "desc").limit(500).onSnapshot(snap => {
+      if (!snap.metadata.fromCache) clearTimeout(timer);
+      store.items.clear();
+      snap.docs.forEach(d => { const v = d.data(); if (v) store.items.set(d.id, JSON.parse(JSON.stringify(v))); });
+      if (first && !snap.metadata.fromCache) {
+        first = false;
+        // move finds saved in this browser into the account once
+        const missing = localItems.filter(i => !store.items.has(i.id));
+        (async () => { for (const it of missing) { try { await store.col.doc(it.id).set(it); } catch (e) { break; } } try { localStorage.removeItem("snag-items"); } catch (e) {} })();
+      }
+      renderAll();
+    }, err => { clearTimeout(timer); store.mode = "local"; store.loadLocal(); setSync(); renderAll(); });
+    setSync(); renderAll();
+  } catch (e) {
+    store.mode = "local"; setSync();
+  }
+})();
+</script>
+</body>
+</html>
