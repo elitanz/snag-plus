@@ -17,6 +17,7 @@ An upgraded Snag, the thrift-flip checker. Snap a find, and it tells you what th
 - **New logo:** a fishhook that's snagged a price tag.
 - **Sales tax setting.** Profit, ROI and "max to pay" include the tax you pay at the register.
 - **Clear BUY rule.** The receipt shows exactly how much profit a BUY needs.
+- **Works anywhere, nothing to install:** AI checks run in the cloud (free Cloudflare Worker), including on your phone in the store.
 - **Homepage explains how it works** instead of showing a made-up example item.
 - **Left column scrolls on its own** on desktop, so the scan form is always reachable.
 - **Five price-check links** instead of one: eBay sold and Poshmark sold (what items actually sold for), plus Mercari, Etsy and Google Shopping (current asking prices).
@@ -25,16 +26,17 @@ An upgraded Snag, the thrift-flip checker. Snap a find, and it tells you what th
 - **Stats:** average days to sell.
 - Drag-and-drop or paste photos on desktop, pick several photos at once, ⌘/Ctrl+Enter to check, and a buzz on BUY (Android phones; iPhones don't allow it).
 
-## Run it with live AI checks (free)
+## How the AI checks work (free, nothing to run)
 
-```bash
-python3 serve.py
-```
+The page calls **Snag AI**, a small Cloudflare Worker (`worker/`) at `https://snag-ai.snag-ai.workers.dev`. It only answers requests from elitanz.github.io (and localhost for testing).
 
-Then open http://localhost:8790. Photo checks use a free Google Gemini key, and the "Ask about this item" questions use a free Groq key (fast, about 1,000 free questions a day). `serve.py` reads both keys from `~/Claude Code/secrets/` on your own computer and adds them on the computer's side, so **no key is ever in this repo or sent to the browser.**
+- **Photo checks:** Google Gemini's fast "lite" models first (best prices), then Cloudflare's own free vision model (Llama 4 Scout) once Gemini's free daily quota is used up, then Gemini's bigger models.
+- **"Ask about this item":** Groq first (fast, about 1,000 free questions a day), then the models above.
+- **Keys** (Gemini, Groq) are encrypted Worker secrets on Cloudflare. They are never in this repo or sent to the browser.
+- Free-tier answers are rougher than paid ones, so check the eBay sold link before spending big.
 
-Free-tier notes: Gemini allows roughly 20 checks a day *per model*, and `serve.py` rotates through several models, skipping any that are busy or used up for the day. Answers from the free models are rougher than paid ones, so check the eBay sold link before spending big.
+To update the Worker after editing `worker/src/index.js`: `cd worker && npx wrangler deploy`.
 
-The GitHub Pages copy (no `serve.py` behind it) shows the app but can't run checks. It also runs as an artifact on claude.ai, where Claude does the checks.
+On claude.ai (as an artifact), Claude does the checks instead. `serve.py` is an optional way to run everything on a computer without the Worker.
 
 Single-file static page (`index.html`), no build step.

@@ -1,0 +1,5 @@
+{
+  "name": "snag-ai",
+  "private": true,
+  "devDependencies": { "wrangler": "4.157.0" }
+}

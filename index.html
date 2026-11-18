@@ -830,7 +830,7 @@ $("shots").addEventListener("drop", e => { e.preventDefault(); $("shots").classL
 function updateGo() {
   const has = mode === "photo" ? photos.some(Boolean) : $("desc").value.trim().length > 3;
   $("go").disabled = !has || !sample;
-  if (has && !sample) setStatus("AI checks aren't connected on this page yet. Run Snag with serve.py on your computer, or open it on claude.ai.");
+  if (has && !sample) setStatus("Connecting to Snag's AI… if this doesn't clear, check your internet and reload.");
   else if (has) setStatus("");
 }
 function setStatus(t, err) { $("status").textContent = t; $("status").className = "status" + (err ? " err" : ""); }
@@ -920,7 +920,7 @@ $("go").addEventListener("click", async () => {
     if (current) openItem(current, false); else renderWelcome();
     if (err && err.code === "rate_limited") setStatus("Too many checks in a row. Wait a minute, then try again.", true);
     else if (err && err.code === "not_granted") setStatus("Snag needs your OK to use AI. Allow it when asked, then try again.", true);
-    else if (err && err.code === "network") setStatus("Couldn't reach the AI. Check your connection and that serve.py is still running.", true);
+    else if (err && err.code === "network") setStatus("Couldn't reach Snag's AI. Check your internet connection and try again.", true);
     else if (err && (err.code === "timeout" || err.code === "upstream")) setStatus("The free AI is busy right now. Give it a minute and try again.", true);
     else setStatus(mode === "photo" ? "Couldn't read that. Try a closer, brighter photo with the label in view." : "Couldn't price that. Add the brand, model or size and try again.", true);
     $("go").disabled = false;
@@ -992,7 +992,7 @@ function renderWelcome() {
       <li><b>2</b><div><h3>See what it really sells for</h3><p>Price ranges for eBay, Poshmark, Mercari and more, with each platform's fees and shipping already taken out.</p></div></li>
       <li><b>3</b><div><h3>Get a straight answer</h3><p>BUY, MAYBE or SKIP, the most you should pay, and a listing that's ready to post.</p></div></li>
     </ol>
-    ${sample ? "" : `<p class="welcome-note">AI checks aren't connected on this page yet. Run Snag with <b>serve.py</b> on your computer, or open it on claude.ai.</p>`}
+    ${sample ? "" : `<p class="welcome-note" id="aiNote">Connecting to Snag's AI…</p>`}
   </article>`;
 }
 function refreshResult() {
@@ -1428,14 +1428,17 @@ function renderAll() {
 }
 
 /* ======================================================================
-   AI through serve.py (free Gemini; the key stays on the computer running it)
+   AI outside claude.ai: the Snag AI cloud Worker (free; keys stay on Cloudflare),
+   or serve.py when running locally. On claude.ai, Claude does the checks instead.
    ====================================================================== */
+const CLOUD_AI = "https://snag-ai.snag-ai.workers.dev";   // Snag AI Worker (worker/ folder)
+let aiBase = "api/";
 function blobToB64(b) {
   return new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result).split(",")[1] || ""); fr.onerror = () => reject(fr.error); fr.readAsDataURL(b); });
 }
 async function callLocalAI(body) {
   let r;
-  try { r = await fetch("api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  try { r = await fetch(aiBase + "ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   catch (e) { throw { code: "network" }; }
   const d = await r.json().catch(() => ({}));
   if (!r.ok || !d.ok) throw { code: d.code || "upstream" };
@@ -1458,16 +1461,21 @@ function makeLocalSample() {
   return fn;
 }
 async function connectLocalAI() {
-  try {
-    const r = await fetch("api/ai/status", { cache: "no-store" });
-    if (!r.ok) return false;
-    const d = await r.json();
-    if (!d.ok || sample) return false;
-    sample = makeLocalSample();
-    updateGo();
-    refreshResult();
-    return true;
-  } catch (e) { return false; }
+  const bases = ["api/", CLOUD_AI ? CLOUD_AI.replace(/\/?$/, "/") : ""].filter(Boolean);
+  for (const base of bases) {
+    try {
+      const r = await fetch(base + "ai/status", { cache: "no-store" });
+      if (!r.ok) continue;
+      const d = await r.json();
+      if (!d.ok || sample) continue;
+      aiBase = base;
+      sample = makeLocalSample();
+      updateGo();
+      refreshResult();
+      return true;
+    } catch (e) { /* try the next one */ }
+  }
+  return false;
 }
 
 /* ======================================================================
@@ -1481,7 +1489,14 @@ renderAll();
 setSync();
 updateGo();
 
-connectLocalAI();
+connectLocalAI().then(ok => {
+  if (ok || sample) return;
+  setTimeout(() => {
+    if (sample) return;
+    const note = document.getElementById("aiNote");
+    if (note) note.textContent = "Snag's AI isn't reachable right now. Check your internet connection, then reload the page.";
+  }, 6000);
+});
 (async () => {
   for (let i = 0; i < 50 && !(window.claude && window.claude.use); i++) await new Promise(r => setTimeout(r, 100));
   if (!(window.claude && window.claude.use)) { updateGo(); return; }

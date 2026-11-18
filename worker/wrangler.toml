@@ -1,0 +1,11 @@
+name = "snag-ai"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# Cloudflare's built-in AI (free daily allowance, no outside key needed)
+[ai]
+binding = "AI"
+
+# Secrets (set once, encrypted on Cloudflare, never in this repo):
+#   npx wrangler@4.157.0 secret put GEMINI_KEY
+#   npx wrangler@4.157.0 secret put GROQ_KEY
